@@ -43,7 +43,7 @@ jobs:
       uses: actions/checkout@v4
     
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.12'
         cache: 'pip'
@@ -84,7 +84,7 @@ jobs:
         python weekly_update.py $args
     
     - name: Upload predictions artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: predictions-${{ github.run_id }}
         path: |
