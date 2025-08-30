@@ -90,8 +90,8 @@ jobs:
       with:
         name: predictions-${{ github.run_id }}
         path: |
-          data/processed/predictions/
-          data/processed/weekly_accuracy.csv
+          src/data/processed/predictions/
+          src/data/processed/weekly_accuracy.csv
           weekly_update.log
         retention-days: 30
     
@@ -100,7 +100,7 @@ jobs:
       run: |
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
-        git add data/processed/weekly_accuracy.csv
+        git add src/data/processed/weekly_accuracy.csv
         if git diff --cached --quiet; then
           echo "No changes to commit"
         else
