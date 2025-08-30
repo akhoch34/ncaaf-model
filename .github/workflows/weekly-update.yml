@@ -58,6 +58,7 @@ jobs:
         echo "CFBD_API_KEY=${{ secrets.CFBD_API_KEY }}" > .env
         echo "GMAIL_APP_PASSWORD=${{ secrets.GMAIL_APP_PASSWORD }}" >> .env
         echo "EMAIL_TO=${{ secrets.EMAIL_TO }}" >> .env
+        echo "EMAIL_FROM=${{ secrets.EMAIL_FROM }}" >> .env
     
     - name: Run weekly update
       run: |

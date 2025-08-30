@@ -33,13 +33,37 @@ def _auto_week(df: pd.DataFrame) -> int:
     return last_week + 1
 
 def predict(season: int, week: Optional[int] = None, book: str = 'consensus', min_edge: float = 0.5) -> pd.DataFrame:
-    games = _load_season(season)
+    # Load historical seasons to build continuous ELO ratings
+    historical_seasons = [2020, 2021, 2022, 2023, 2024]
+    all_games = []
+    
+    # Load all historical seasons for ELO continuity
+    for hist_season in historical_seasons:
+        try:
+            hist_games = _load_season(hist_season)
+            all_games.append(hist_games)
+        except FileNotFoundError:
+            print(f"Warning: Historical season {hist_season} not found, ELO ratings may be less accurate")
+    
+    # Load current season
+    current_games = _load_season(season)
+    all_games.append(current_games)
+    
+    # Combine all seasons for continuous ELO calculation
+    combined_games = pd.concat(all_games, ignore_index=True).sort_values(['season', 'week', 'start_date'])
+    
+    # Build features across all seasons to get proper ELO ratings
+    all_feats = build_features(combined_games)
+    
+    # Extract features for the current season only
+    feats = all_feats[all_feats['season'] == season].copy()
+    
+    # Load and join lines for current season
     lines = _load_lines(season)
-    feats = build_features(games)
     feats = join_lines(feats, lines, book=book)
 
     if week is None or (isinstance(week, str) and week.lower() == 'auto'):
-        wk = _auto_week(games)
+        wk = _auto_week(current_games)
     else:
         wk = int(week)
 
@@ -62,15 +86,41 @@ def predict(season: int, week: Optional[int] = None, book: str = 'consensus', mi
     # Moneyline pick
     wk_df['pick_ml'] = np.where(wk_df['win_prob_home'] >= 0.5, wk_df['home_team'], wk_df['away_team'])
 
-    # ATS pick
-    wk_df['edge_spread'] = wk_df['pred_margin'] - wk_df['spread_line']
+    # ATS pick  
+    # Edge calculation: how much better/worse than covering the spread
+    # spread_line convention: negative = home favored, positive = home underdog
+    # 
+    # Home favored: Penn State -45.5 → need to win by >45.5
+    #   pred_margin +43.7 → edge = 43.7 - 45.5 = -1.8 (don't cover by 1.8)
+    # 
+    # Home underdog: Florida State +13.5 → can lose by <13.5 and still cover  
+    #   pred_margin -14.28 → edge = -14.28 + 13.5 = -0.78 (don't cover by 0.78)
+    wk_df['edge_spread'] = np.where(
+        wk_df['spread_line'] < 0,
+        wk_df['pred_margin'] - abs(wk_df['spread_line']),  # home favored: pred - required_margin  
+        wk_df['pred_margin'] + wk_df['spread_line']        # home underdog: pred + spread_points
+    )
     
     def make_ats_pick(row):
         if pd.notna(row['spread_line']) and abs(row['edge_spread']) >= min_edge:
+            spread_line = row['spread_line']
+            
             if row['edge_spread'] > 0:
-                return f"{row['home_team']} - ATS"
+                # Home team beats the spread
+                if spread_line < 0:
+                    # Home team is favorite - pick them to cover the spread
+                    return f"{row['home_team']} - ATS"
+                else:
+                    # Home team is underdog - pick them to cover (get the points)
+                    return f"{row['home_team']} + ATS"
             else:
-                return f"{row['away_team']} + ATS"
+                # Away team beats the spread  
+                if spread_line > 0:
+                    # Away team is favorite - pick them to cover the spread
+                    return f"{row['away_team']} - ATS"
+                else:
+                    # Away team is underdog - pick them to cover (get the points)
+                    return f"{row['away_team']} + ATS"
         return 'no bet'
     
     wk_df['pick_spread'] = wk_df.apply(make_ats_pick, axis=1)

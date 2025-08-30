@@ -60,25 +60,30 @@ def run_command(cmd, cwd=None):
         logger.error(f"Error output: {e.stderr}")
         return False
 
-def activate_venv_cmd():
-    """Return command prefix to activate virtual environment"""
-    if os.name == 'nt':  # Windows
-        return ["cmd", "/c", ".venv\\Scripts\\activate", "&&"]
-    else:  # Unix/Linux
-        return ["bash", "-c", "source .venv/bin/activate &&"]
+def run_python_command(python_args, cwd=None):
+    """Run a Python command with appropriate environment setup"""
+    # In GitHub Actions, Python is already available globally
+    if os.getenv('GITHUB_ACTIONS'):
+        cmd = ['python'] + python_args
+        return run_command(cmd, cwd)
+    
+    # If we're in an activated virtual environment, use python directly
+    if os.getenv('VIRTUAL_ENV'):
+        cmd = ['python'] + python_args
+        return run_command(cmd, cwd)
+    
+    # For local development, assume user activated the venv manually
+    # If not activated, this will fail and user will know to activate it
+    cmd = ['python'] + python_args
+    return run_command(cmd, cwd)
+
 
 def fetch_latest_data():
     """Fetch the latest game data for current season"""
     logger.info(f"Fetching latest data for {CURRENT_SEASON} season...")
     
-    # Activate venv and fetch current season data
-    if os.name == 'nt':
-        cmd = ["cmd", "/c", ".venv\\Scripts\\activate", "&&", "cd", SRC_DIR, "&&", 
-               "python", "-m", "cfb_predictor.cli", "fetch-data", str(CURRENT_SEASON)]
-    else:
-        cmd = ["bash", "-c", f"cd {os.getcwd()} && source .venv/bin/activate && cd {SRC_DIR} && python -m cfb_predictor.cli fetch-data {CURRENT_SEASON}"]
-    
-    return run_command(cmd)
+    python_args = ["-m", "cfb_predictor.cli", "fetch-data", str(CURRENT_SEASON)]
+    return run_python_command(python_args, cwd=SRC_DIR)
 
 def retrain_models():
     """Retrain models on all available data"""
@@ -88,13 +93,8 @@ def retrain_models():
     all_seasons = TRAINING_SEASONS + [CURRENT_SEASON]
     season_args = [str(s) for s in all_seasons]
     
-    if os.name == 'nt':
-        cmd = ["cmd", "/c", ".venv\\Scripts\\activate", "&&", "cd", SRC_DIR, "&&", 
-               "python", "-m", "cfb_predictor.cli", "train"] + season_args
-    else:
-        cmd = ["bash", "-c", f"cd {os.getcwd()} && source .venv/bin/activate && cd {SRC_DIR} && python -m cfb_predictor.cli train {' '.join(season_args)}"]
-    
-    return run_command(cmd)
+    python_args = ["-m", "cfb_predictor.cli", "train"] + season_args
+    return run_python_command(python_args, cwd=SRC_DIR)
 
 def update_accuracy(week=None, book="DraftKings"):
     """Update accuracy tracking for the previous completed week"""
@@ -105,16 +105,11 @@ def update_accuracy(week=None, book="DraftKings"):
     prev_week = week - 1
     logger.info(f"Updating accuracy for completed week {prev_week} of {CURRENT_SEASON} season...")
     
-    if os.name == 'nt':
-        cmd = ["cmd", "/c", ".venv\\Scripts\\activate", "&&", "cd", SRC_DIR, "&&", 
-               "python", "-m", "cfb_predictor.cli", "update-accuracy", 
-               "--season", str(CURRENT_SEASON),
-               "--week", str(prev_week),
-               "--book", book]
-    else:
-        cmd = ["bash", "-c", f"cd {os.getcwd()} && source .venv/bin/activate && cd {SRC_DIR} && python -m cfb_predictor.cli update-accuracy --season {CURRENT_SEASON} --week {prev_week} --book {book}"]
-    
-    return run_command(cmd)
+    python_args = ["-m", "cfb_predictor.cli", "update-accuracy", 
+                   "--season", str(CURRENT_SEASON),
+                   "--week", str(prev_week),
+                   "--book", book]
+    return run_python_command(python_args, cwd=SRC_DIR)
 
 def generate_predictions(week=None, book="DraftKings", min_edge=0.5):
     """Generate predictions for upcoming games"""
@@ -122,17 +117,12 @@ def generate_predictions(week=None, book="DraftKings", min_edge=0.5):
     
     week_arg = str(week) if week else "auto"
     
-    if os.name == 'nt':
-        cmd = ["cmd", "/c", ".venv\\Scripts\\activate", "&&", "cd", SRC_DIR, "&&", 
-               "python", "-m", "cfb_predictor.cli", "predict", 
-               "--season", str(CURRENT_SEASON),
-               "--week", week_arg,
-               "--book", book,
-               "--min-edge", str(min_edge)]
-    else:
-        cmd = ["bash", "-c", f"cd {os.getcwd()} && source .venv/bin/activate && cd {SRC_DIR} && python -m cfb_predictor.cli predict --season {CURRENT_SEASON} --week {week_arg} --book {book} --min-edge {min_edge}"]
-    
-    return run_command(cmd)
+    python_args = ["-m", "cfb_predictor.cli", "predict", 
+                   "--season", str(CURRENT_SEASON),
+                   "--week", week_arg,
+                   "--book", book,
+                   "--min-edge", str(min_edge)]
+    return run_python_command(python_args, cwd=SRC_DIR)
 
 def send_email_picks(week=None, book="DraftKings"):
     """Send email with weekly picks and performance summary"""
@@ -200,55 +190,113 @@ def send_email_picks(week=None, book="DraftKings"):
 - O/U Record: {recent_acc['ou_wins']}-{recent_acc['ou_losses']}-{recent_acc['ou_pushes']} ({recent_acc['ou_win_pct']:.1%})
 """
         
-        # Filter for actual picks (not "no bet")
-        ats_picks = predictions[predictions['pick_spread'] != 'no bet']
-        ou_picks = predictions[predictions['pick_total'] != 'no bet']
+        # Filter for actual picks (not "no bet") and sort by edge
+        ats_picks = predictions[predictions['pick_spread'] != 'no bet'].copy()
+        ats_picks['abs_edge_spread'] = abs(ats_picks['edge_spread'])
+        ats_picks = ats_picks.sort_values('abs_edge_spread', ascending=False)
+        
+        ou_picks = predictions[predictions['pick_total'] != 'no bet'].copy()
+        ou_picks['abs_edge_total'] = abs(ou_picks['edge_total'])
+        ou_picks = ou_picks.sort_values('abs_edge_total', ascending=False)
         
         # Create email content
         subject = f"🏈 NCAAF Week {week_num} Picks - {CURRENT_SEASON} Season"
         
-        body = f"""🏈 NCAAF WEEKLY PICKS - Week {week_num}
-Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC
+        body = f"""
+═══════════════════════════════════════════════════════════════
+🏈 NCAAF WEEKLY PICKS - Week {week_num} ({CURRENT_SEASON} Season)
+═══════════════════════════════════════════════════════════════
+
+📅 Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC
+📊 Sportsbook: {book}
+📈 Minimum Edge: 0.5 points
 
 {accuracy_summary}
 
-🎯 THIS WEEK'S TOP PICKS:
-
-AGAINST THE SPREAD ({len(ats_picks)} picks):
+🎯 TOP AGAINST THE SPREAD PICKS ({len(ats_picks)} total):
+{"="*65}
 """
         
-        # Add top ATS picks
-        for _, game in ats_picks.head(10).iterrows():
+        # Add top ATS picks with detailed formatting
+        for i, (_, game) in enumerate(ats_picks.head(10).iterrows(), 1):
             edge = abs(game['edge_spread'])
-            body += f"• {game['pick_spread']} (Edge: {edge:.1f})\n"
-        
-        body += f"\nOVER/UNDER ({len(ou_picks)} picks):\n"
-        
-        # Add top O/U picks  
-        for _, game in ou_picks.head(10).iterrows():
-            teams = f"{game['away_team']} @ {game['home_team']}"
-            edge = abs(game['edge_total'])
-            body += f"• {teams} {game['pick_total']} {game['total_line']} (Edge: {edge:.1f})\n"
+            game_time = pd.to_datetime(game['start_date']).strftime('%a %m/%d %I:%M%p ET')
+            pred_margin = game['pred_margin']
+            spread = game['spread_line']
+            
+            # Determine if it's a favorite (-) or underdog (+) pick
+            if "+" in game['pick_spread']:
+                pick_team = game['pick_spread'].replace(' + ATS', '')
+                pick_type = "underdog"
+                spread_display = f"+{abs(spread)}"
+            else:
+                pick_team = game['pick_spread'].replace(' - ATS', '')
+                pick_type = "favorite"
+                spread_display = f"{spread}"
+            
+            body += f"""
+{i:2d}. {game['away_team']} @ {game['home_team']}
+    🕒 {game_time}
+    🎯 PICK: {pick_team} ({spread_display})
+    📊 Predicted Margin: {pred_margin:+.1f}
+    💰 Edge: {edge:.1f} points
+"""
         
         body += f"""
-📁 Full picks available in: {latest_pred_file}
+{"="*65}
 
-🤖 MODEL INFO:
-- Training Data: 2020-{CURRENT_SEASON-1} seasons + completed {CURRENT_SEASON} games
-- Sportsbook: {book}
-- Minimum Edge: 0.5 points
-
----
-Generated by NCAAF Predictor
-https://github.com/your-username/ncaaf-model
+🎲 TOP OVER/UNDER PICKS ({len(ou_picks)} total):
+{"="*65}
 """
         
+        # Add top O/U picks with detailed formatting
+        for i, (_, game) in enumerate(ou_picks.head(10).iterrows(), 1):
+            edge = abs(game['edge_total'])
+            game_time = pd.to_datetime(game['start_date']).strftime('%a %m/%d %I:%M%p ET')
+            pred_total = game['pred_total']
+            total_line = game['total_line']
+            pick = game['pick_total']
+            
+            body += f"""
+{i:2d}. {game['away_team']} @ {game['home_team']}
+    🕒 {game_time}
+    🎯 PICK: {pick} {total_line}
+    📊 Predicted Total: {pred_total:.1f}
+    💰 Edge: {edge:.1f} points
+"""
+        
+        body += f"""
+{"="*65}
+
+📂 ADDITIONAL INFO:
+• Full picks available in: {latest_pred_file}
+• Training Data: 2020-{CURRENT_SEASON-1} seasons + completed {CURRENT_SEASON} games
+• All times shown in Eastern Time
+
+💡 BETTING NOTES:
+• Edge = |Predicted Value - Line Value|
+• Only picks with minimum 0.5 point edge are shown
+• ATS = Against The Spread
+• Positive margin = Home team favored
+
+═══════════════════════════════════════════════════════════════
+🤖 Generated by NCAAF Predictor
+📈 https://github.com/your-username/ncaaf-model
+═══════════════════════════════════════════════════════════════
+"""
+        
+        # Create HTML version for better email formatting
+        html_body = body.replace('\n', '<br>\n').replace(' ', '&nbsp;')
+        
         # Send email
-        msg = MIMEMultipart()
+        msg = MIMEMultipart('alternative')
         msg['From'] = email_from
         msg['To'] = email_to  
         msg['Subject'] = subject
+        
+        # Add both plain text and HTML versions
         msg.attach(MIMEText(body, 'plain'))
+        msg.attach(MIMEText(f'<pre style="font-family: monospace;">{html_body}</pre>', 'html'))
         
         server = smtplib.SMTP('smtp.gmail.com', 587)
         server.starttls()
