@@ -1,10 +1,19 @@
 # CFB Predictor — Winners, Spread, and Totals
 
-A Python project to predict FBS (Division I) college football **winners**, **spread edges**, and **totals (over/under)** using a transparent, reproducible pipeline.
+A Python project to predict FBS (Division I) college football **winners**, **spread edges**, and **totals (over/under)** using a transparent, reproducible pipeline with automated weekly updates.
 
-## 🎯 Performance Results (2024 Season)
-- **Against The Spread (ATS)**: **80.8%** win rate (637/799 bets with 0.5+ edge)
-- **Over/Under (O/U)**: **55.4%** win rate (414/761 bets with 0.5+ edge)
+## 🎯 Performance Results (2024 Backtest)
+- **Against The Spread (ATS)**: **81.9%** win rate (644-142-10 record)
+- **Over/Under (O/U)**: **55.4%** win rate (417-333-13 record)
+- **Training Data**: 2020-2023 seasons → **Testing**: 2024 season (proper train/test split)
+
+## 🤖 Weekly Automation
+The system automatically updates every **Thursday at noon Central Time** with:
+- Fresh game data and betting lines
+- Model retraining with latest results  
+- New predictions for upcoming week
+- Accuracy tracking and email notifications
+- Performance monitoring across the season
 
 The project:
 - Pulls game schedules/results and betting lines from [CollegeFootballData](https://collegefootballdata.com) (CFBD).
@@ -18,38 +27,48 @@ The project:
 
 > ⚠️ CFBD requires a free API key. Create one at collegefootballdata.com and set `CFBD_API_KEY` in your environment or `.env` file.
 
-## Quickstart
+## 🚀 Quick Start
 
-1) **Python 3.11** is recommended.
+### For Manual Usage
+
+1) **Setup Environment**:
 ```bash
 python -m venv .venv && source .venv/bin/activate  # or .venv\Scripts\activate on Windows
 pip install -r requirements.txt
 cp .env.example .env  # and fill in CFBD_API_KEY
 ```
 
-2) **Fetch and cache raw data** (games + lines) for one or more seasons:
+2) **Get This Week's Picks**:
 ```bash
-python -m cfb_predictor.cli fetch-data 2022 2023 2024
+# Automated weekly update (fetches data, trains models, generates picks)
+python weekly_update.py
+
+# Or step by step:
+cd src
+python -m cfb_predictor.cli fetch-data 2025
+python -m cfb_predictor.cli train 2020 2021 2022 2023 2024 2025
+python -m cfb_predictor.cli predict --season 2025 --week auto --book DraftKings
 ```
 
-3) **Train models** (features are built dynamically during training):
+3) **View Predictions**: Check `data/processed/predictions/predictions_2025_wkX.csv`
+
+4) **Track Performance**:
 ```bash
-python -m cfb_predictor.cli train 2022 2023 2024
+cd src  
+python -m cfb_predictor.cli show-accuracy --season 2025
 ```
 
-4) **Predict upcoming games** (uses this week's schedule + latest lines if available):
-```bash
-python -m cfb_predictor.cli predict --season 2025 --week auto --book DraftKings --min-edge 0.5
-```
-This outputs a CSV under `data/processed/predictions/` with:
-- `win_prob_home`, `pick_ml`
-- `pred_margin`, `edge_spread`, `pick_spread`
-- `pred_total`, `edge_total`, `pick_total`
+### For GitHub Actions Automation
 
-5) **Backtest** on historical seasons:
-```bash
-python -m cfb_predictor.cli backtest 2024 --book DraftKings --min-edge 0.5
-```
+1) **Fork this repository**
+2) **Set GitHub Secrets**:
+   - `CFBD_API_KEY`: Your CollegeFootballData.com API key
+   - `GMAIL_APP_PASSWORD`: Gmail app password for email notifications  
+   - `EMAIL_TO`: Your email address for receiving picks
+3) **Enable GitHub Actions** in your repository settings
+4) **Automatic weekly updates** run every Thursday at noon CT
+
+**Manual trigger**: Go to Actions → Weekly NCAAF Model Update → Run workflow
 
 ## Project Structure
 
@@ -57,21 +76,39 @@ python -m cfb_predictor.cli backtest 2024 --book DraftKings --min-edge 0.5
 cfb-predictor/
   ├── src/cfb_predictor/
   │   ├── data_sources/cfbd_client.py
-  │   ├── features/elo.py
-  │   ├── features/feature_builder.py
+  │   ├── features/elo.py & feature_builder.py
   │   ├── data/build_games.py
   │   ├── models/train.py
-  │   ├── predict.py
-  │   ├── backtest.py
+  │   ├── predict.py & backtest.py
+  │   ├── accuracy.py     # weekly accuracy tracking
   │   └── cli.py
+  ├── .github/workflows/
+  │   └── weekly-update.yml  # GitHub Actions automation
   ├── data/
-  │   ├── raw/            # cached API pulls
-  │   ├── processed/      # feature tables, predictions, backtests
-  │   └── models/         # trained sklearn pickle files
+  │   ├── raw/            # cached games + lines from CFBD API
+  │   ├── processed/      # predictions, accuracy tracking
+  │   └── models/         # trained sklearn models (.pkl files)
+  ├── weekly_update.py    # main automation script
   ├── .env.example
   ├── requirements.txt
   └── README.md
 ```
+
+## 📊 Weekly Automation Features
+
+**Every Thursday at Noon CT, the system:**
+1. **Fetches** latest completed games and upcoming schedules
+2. **Retrains** models on all available data (2020-current season)
+3. **Generates** predictions for the upcoming week with betting edges
+4. **Tracks** accuracy from previous week's results
+5. **Emails** you the picks with performance summary
+6. **Commits** updated accuracy data to the repository
+
+**What You Get Each Week:**
+- Top ATS and O/U picks with confidence edges
+- Model performance tracking (win rates, records)
+- Key game analysis and predictions
+- Historical accuracy trends
 
 ## Notes & Assumptions
 

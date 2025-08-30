@@ -1,0 +1,115 @@
+name: Weekly NCAAF Model Update
+
+on:
+  schedule:
+    # Run every Thursday at 6:00 PM UTC (12:00 PM Central Time)
+    - cron: '0 18 * * 4'
+  workflow_dispatch:
+    inputs:
+      week:
+        description: 'Specific week number to predict'
+        required: false
+        type: number
+      book:
+        description: 'Sportsbook for lines'
+        required: false
+        default: 'DraftKings'
+      min_edge:
+        description: 'Minimum betting edge'
+        required: false
+        default: '0.5'
+      skip_fetch:
+        description: 'Skip data fetching'
+        required: false
+        type: boolean
+        default: false
+      skip_train:
+        description: 'Skip model training'
+        required: false
+        type: boolean  
+        default: false
+      skip_predict:
+        description: 'Skip prediction generation'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+        cache: 'pip'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Create .env file
+      run: |
+        echo "CFBD_API_KEY=${{ secrets.CFBD_API_KEY }}" > .env
+        echo "GMAIL_APP_PASSWORD=${{ secrets.GMAIL_APP_PASSWORD }}" >> .env
+        echo "EMAIL_TO=${{ secrets.EMAIL_TO }}" >> .env
+    
+    - name: Run weekly update
+      run: |
+        args=""
+        if [ "${{ github.event.inputs.week }}" != "" ]; then
+          args="$args --week ${{ github.event.inputs.week }}"
+        fi
+        if [ "${{ github.event.inputs.book }}" != "" ]; then
+          args="$args --book ${{ github.event.inputs.book }}"
+        fi
+        if [ "${{ github.event.inputs.min_edge }}" != "" ]; then
+          args="$args --min-edge ${{ github.event.inputs.min_edge }}"
+        fi
+        if [ "${{ github.event.inputs.skip_fetch }}" == "true" ]; then
+          args="$args --skip-fetch"
+        fi
+        if [ "${{ github.event.inputs.skip_train }}" == "true" ]; then
+          args="$args --skip-train"
+        fi
+        if [ "${{ github.event.inputs.skip_predict }}" == "true" ]; then
+          args="$args --skip-predict"
+        fi
+        
+        python weekly_update.py $args
+    
+    - name: Upload predictions artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: predictions-${{ github.run_id }}
+        path: |
+          data/processed/predictions/
+          data/processed/weekly_accuracy.csv
+          weekly_update.log
+        retention-days: 30
+    
+    - name: Commit updated accuracy tracking
+      if: github.event_name == 'schedule'
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add data/processed/weekly_accuracy.csv
+        if git diff --cached --quiet; then
+          echo "No changes to commit"
+        else
+          git commit -m "Update weekly accuracy tracking - $(date +'%Y-%m-%d')"
+          git push
+        fi
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Send notification (optional)
+      if: failure()
+      run: |
+        echo "Weekly update failed. Check the logs for details."
+        # Add notification logic here (Slack, email, etc.) if needed

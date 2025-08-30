@@ -64,11 +64,16 @@ def predict(season: int, week: Optional[int] = None, book: str = 'consensus', mi
 
     # ATS pick
     wk_df['edge_spread'] = wk_df['pred_margin'] - wk_df['spread_line']
-    wk_df['pick_spread'] = np.where(
-        wk_df['spread_line'].notna() & (wk_df['edge_spread'].abs() >= min_edge),
-        np.where(wk_df['edge_spread'] > 0, f"{wk_df['home_team']} - ATS", f"{wk_df['away_team']} + ATS"),
-        'no bet'
-    )
+    
+    def make_ats_pick(row):
+        if pd.notna(row['spread_line']) and abs(row['edge_spread']) >= min_edge:
+            if row['edge_spread'] > 0:
+                return f"{row['home_team']} - ATS"
+            else:
+                return f"{row['away_team']} + ATS"
+        return 'no bet'
+    
+    wk_df['pick_spread'] = wk_df.apply(make_ats_pick, axis=1)
 
     # Total pick
     wk_df['edge_total'] = wk_df['pred_total'] - wk_df['total_line']
