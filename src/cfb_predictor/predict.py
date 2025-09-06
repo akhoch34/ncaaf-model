@@ -78,7 +78,7 @@ def predict(season: int, week: Optional[int] = None, book: str = 'consensus', mi
     wk_df['win_prob_home'] = win_m['model'].predict_proba(Xw)[:,1]
 
     Xm = wk_df[margin_m['features']].fillna(0.0).values
-    wk_df['pred_margin'] = margin_m['model'].predict(Xm)
+    wk_df['pred_margin'] = margin_m['model'].predict(Xm)  # Positive = home team wins by this much
 
     Xt = wk_df[total_m['features']].fillna(0.0).values
     wk_df['pred_total'] = total_m['model'].predict(Xt)
@@ -88,39 +88,49 @@ def predict(season: int, week: Optional[int] = None, book: str = 'consensus', mi
 
     # ATS pick  
     # Edge calculation: how much better/worse than covering the spread
-    # spread_line convention: negative = home favored, positive = home underdog
+    # pred_margin convention: positive = home wins by that much, negative = home loses by that much
+    # spread_line convention: negative = home favored, positive = home underdog  
     # 
     # Home favored: Penn State -45.5 → need to win by >45.5
-    #   pred_margin +43.7 → edge = 43.7 - 45.5 = -1.8 (don't cover by 1.8)
+    #   pred_margin +43.7 → edge = 43.7 - (-45.5) = 89.2 (would cover by 89.2)
     # 
     # Home underdog: Florida State +13.5 → can lose by <13.5 and still cover  
-    #   pred_margin -14.28 → edge = -14.28 + 13.5 = -0.78 (don't cover by 0.78)
-    wk_df['edge_spread'] = np.where(
-        wk_df['spread_line'] < 0,
-        wk_df['pred_margin'] - abs(wk_df['spread_line']),  # home favored: pred - required_margin  
-        wk_df['pred_margin'] + wk_df['spread_line']        # home underdog: pred + spread_points
-    )
+    #   pred_margin -14.28 → edge = -14.28 - 13.5 = -27.78 (don't cover by 27.78)
+    # Add predicted line for clarity (negative means home favored)
+    # Convert pred_margin to betting line convention: negative pred_line = home favored
+    wk_df['pred_line'] = -wk_df['pred_margin']
+    
+    # Edge = predicted line - spread line (always)
+    # For ATS: we want the absolute value of the edge to determine bet size/confidence
+    # The sign of (pred_line - spread_line) tells us who covers
+    wk_df['edge_spread'] = wk_df['pred_line'] - wk_df['spread_line']
     
     def make_ats_pick(row):
         if pd.notna(row['spread_line']) and abs(row['edge_spread']) >= min_edge:
             spread_line = row['spread_line']
+            pred_line = row['pred_line']
             
-            if row['edge_spread'] > 0:
-                # Home team beats the spread
-                if spread_line < 0:
-                    # Home team is favorite - pick them to cover the spread
-                    return f"{row['home_team']} - ATS"
-                else:
-                    # Home team is underdog - pick them to cover (get the points)
-                    return f"{row['home_team']} + ATS"
-            else:
-                # Away team beats the spread  
+            # Compare our predicted line to market line
+            # If our pred_line is more favorable to the away team, take away team
+            # If our pred_line is more favorable to the home team, take home team
+            
+            # Example: Oklahoma vs Michigan
+            # pred_line = +1.51 (Oklahoma +1.51), spread_line = -3.0 (Oklahoma -3.0)
+            # Our model thinks Oklahoma should get 1.51 points, market gives them -3.0
+            # Market line is much more favorable to away team (Michigan), so take Michigan
+            
+            if pred_line > spread_line:
+                # Our line is higher (worse for home team) - take away team
                 if spread_line > 0:
-                    # Away team is favorite - pick them to cover the spread
-                    return f"{row['away_team']} - ATS"
+                    return f"{row['away_team']} - ATS"  # Away is favorite
                 else:
-                    # Away team is underdog - pick them to cover (get the points)
-                    return f"{row['away_team']} + ATS"
+                    return f"{row['away_team']} + ATS"  # Away is underdog
+            else:
+                # Our line is lower (better for home team) - take home team
+                if spread_line < 0:
+                    return f"{row['home_team']} - ATS"  # Home is favorite
+                else:
+                    return f"{row['home_team']} + ATS"  # Home is underdog
         return 'no bet'
     
     wk_df['pick_spread'] = wk_df.apply(make_ats_pick, axis=1)
@@ -134,7 +144,7 @@ def predict(season: int, week: Optional[int] = None, book: str = 'consensus', mi
     )
 
     # Output
-    out_cols = ['season','week','start_date','home_team','away_team','is_neutral','win_prob_home','pred_margin','spread_line','edge_spread','pick_spread','pred_total','total_line','edge_total','pick_total']
+    out_cols = ['season','week','start_date','home_team','away_team','is_neutral','win_prob_home','pred_margin','pred_line','spread_line','edge_spread','pick_spread','pred_total','total_line','edge_total','pick_total']
     out = wk_df[out_cols].sort_values('start_date')
     os.makedirs(os.path.join(PROCESSED_DIR, 'predictions'), exist_ok=True)
     out_path = os.path.join(PROCESSED_DIR, 'predictions', f'predictions_{season}_wk{wk}.csv')
