@@ -25,6 +25,8 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import pandas as pd
+from typing import Iterable, List, Optional
+
 
 # Configure logging
 logging.basicConfig(
@@ -41,6 +43,14 @@ logger = logging.getLogger(__name__)
 CURRENT_SEASON = 2025  # Production season
 TRAINING_SEASONS = [2020, 2021, 2022, 2023, 2024]  # Historical data for training
 SRC_DIR = "src"
+
+def _coerce_list(recipients: Optional[Iterable[str] | str]) -> List[str]:
+    if recipients is None:
+        return []
+    if isinstance(recipients, str):
+        return [r.strip() for r in recipients.split(",") if r.strip()]
+    return [str(r).strip() for r in recipients if str(r).strip()]
+
 
 def run_command(cmd, cwd=None):
     """Run a shell command and return success status"""
@@ -129,8 +139,9 @@ def send_email_picks(week=None, book="DraftKings"):
         gmail_password = os.getenv("GMAIL_APP_PASSWORD")
         email_from = os.getenv("EMAIL_FROM", "akhoch54@gmail.com")
         email_to = os.getenv("EMAIL_TO")
+        rcpts = _coerce_list(email_to)
 
-        if not gmail_password or not email_to:
+        if not gmail_password or not rcpts:
             logger.warning("Email credentials not found. Skipping email notification.")
             return True
 
@@ -665,7 +676,7 @@ def send_email_picks(week=None, book="DraftKings"):
         # Send email
         msg = MIMEMultipart('alternative')
         msg['From'] = email_from
-        msg['To'] = email_to
+        msg['To'] = ", ".join(rcpts)
         msg['Subject'] = subject
 
         msg.attach(MIMEText(body, 'plain'))
@@ -683,7 +694,7 @@ def send_email_picks(week=None, book="DraftKings"):
     except Exception as e:
         logger.error(f"Failed to send email: {e}")
         return False
-
+    
 def main():
     parser = argparse.ArgumentParser(description="Weekly NCAAF model update and prediction")
     parser.add_argument("--week", type=int, help="Specific week to predict (default: auto)")
