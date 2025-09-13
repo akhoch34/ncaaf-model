@@ -685,10 +685,10 @@ def send_email_picks(week=None, book="DraftKings"):
         server = smtplib.SMTP('smtp.gmail.com', 587)
         server.starttls()
         server.login(email_from, gmail_password)
-        server.sendmail(msg['From'], email_to, msg.as_string())
+        server.sendmail(msg['From'], rcpts, msg.as_string())
         server.quit()
 
-        logger.info(f"Email sent successfully to {email_to}")
+        logger.info(f"Email sent successfully to {rcpts}")
         return True
 
     except Exception as e:
