@@ -77,3 +77,55 @@ def train(seasons: List[int]) -> None:
     })
     os.makedirs(PROCESSED_DIR, exist_ok=True)
     summ.to_csv(os.path.join(PROCESSED_DIR, "training_summary.csv"), index=False)
+
+def train_time_aware(seasons: List[int], cutoff_date: pd.Timestamp = None) -> dict:
+    """
+    Train models using only data available before cutoff_date.
+    Returns dictionary of trained models instead of saving to disk.
+    """
+    frames = []
+    for yr in seasons:
+        games = load_season(yr)
+        # Use time-aware feature builder
+        feats = build_features(games, cutoff_date=cutoff_date)
+        lines = load_lines(yr)
+        feats = join_lines(feats, lines)
+        frames.append(feats)
+    data = pd.concat(frames, ignore_index=True)
+
+    # Only use completed games before cutoff for training
+    if cutoff_date is not None:
+        data = data[pd.to_datetime(data['start_date']) < cutoff_date]
+    
+    # Drop rows with missing outcomes
+    train_df = data.dropna(subset=['home_points','away_points']).copy()
+    
+    if train_df.empty:
+        # Return dummy models if no training data
+        return {
+            'win': {'model': LogisticRegression(), 'features': FEATURES_WIN},
+            'margin': {'model': LinearRegression(), 'features': FEATURES_MARGIN},
+            'total': {'model': LinearRegression(), 'features': FEATURES_TOTAL}
+        }
+
+    # Win model (logistic): predict home_win
+    X_win = train_df[FEATURES_WIN].fillna(0.0).values
+    y_win = train_df['home_win'].values
+    clf = LogisticRegression(max_iter=1000, random_state=42)
+    clf.fit(X_win, y_win)
+
+    # Margin model (linear): predict margin (home - away)  
+    X_margin = train_df[FEATURES_MARGIN].fillna(0.0).values
+    y_margin = train_df['margin'].values
+    reg_m = LinearRegression().fit(X_margin, y_margin)
+
+    # Total model (linear): predict total points
+    X_total = train_df[FEATURES_TOTAL].fillna(0.0).values
+    y_total = train_df['total_points'].values
+    reg_t = LinearRegression().fit(X_total, y_total)
+
+    return {
+        'win': {'model': clf, 'features': FEATURES_WIN},
+        'margin': {'model': reg_m, 'features': FEATURES_MARGIN}, 
+        'total': {'model': reg_t, 'features': FEATURES_TOTAL}
+    }

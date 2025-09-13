@@ -6,7 +6,7 @@ from .elo import EloRatings, EloParams
 
 ROLL_N = 3  # rolling window for points features
 
-def build_features(games: pd.DataFrame) -> pd.DataFrame:
+def build_features(games: pd.DataFrame, cutoff_date: pd.Timestamp = None) -> pd.DataFrame:
     """
     Build per-game features:
     - elo_home, elo_away, elo_diff
@@ -14,6 +14,10 @@ def build_features(games: pd.DataFrame) -> pd.DataFrame:
     - is_neutral, is_home
     - target variables: home_win (1/0), margin (home - away), total_points
     Assumes games for a single season OR multiple seasons; sorted by date/week.
+    
+    Args:
+        games: DataFrame of games
+        cutoff_date: If provided, only use completed games before this date for features
     """
     df = games.copy().sort_values(['season','week','start_date']).reset_index(drop=True)
 
@@ -25,7 +29,7 @@ def build_features(games: pd.DataFrame) -> pd.DataFrame:
     df['total_points'] = df['home_points'] + df['away_points']
     df['home_win'] = (df['margin'] > 0).astype(float)
 
-    # Elo before game
+    # Elo before game - only update using games before cutoff
     elo = EloRatings(EloParams())
     prev_season = None
     elo_home_list, elo_away_list = [], []
@@ -42,20 +46,33 @@ def build_features(games: pd.DataFrame) -> pd.DataFrame:
         elo_home_list.append(elo.get(home))
         elo_away_list.append(elo.get(away))
 
-        # After game, update
-        if pd.notna(row['home_points']) and pd.notna(row['away_points']):
+        # After game, update - but only if this game happened before cutoff
+        game_date = pd.to_datetime(row['start_date'])
+        should_update = (cutoff_date is None or game_date < cutoff_date)
+        
+        if (should_update and 
+            pd.notna(row['home_points']) and pd.notna(row['away_points'])):
             elo.update_game(home, away, int(row['home_points']), int(row['away_points']), bool(row['neutral_site']))
 
     df['elo_home'] = elo_home_list
     df['elo_away'] = elo_away_list
     df['elo_diff'] = df['elo_home'] - df['elo_away'] + (~df['neutral_site']).astype(float) * elo.params.home_field
 
-    # Rolling features per team based on *past* games
+    # Rolling features per team based on *past* games (respecting cutoff)
     def add_rolling(prefix: str, team_col: str, points_for_col: str, points_against_col: str):
         # Build team-level time series
         tmp = df[[team_col,'season','week','start_date',points_for_col, points_against_col]].copy()
         tmp = tmp.rename(columns={team_col:'team', points_for_col:'pf', points_against_col:'pa'})
         tmp = tmp.reset_index(drop=True)
+        
+        # Only use completed games before cutoff for rolling calculations
+        if cutoff_date is not None:
+            tmp['game_date'] = pd.to_datetime(tmp['start_date'])
+            # Mark games that should be excluded from rolling calculations
+            tmp['valid_for_rolling'] = (tmp['game_date'] < cutoff_date) & tmp['pf'].notna() & tmp['pa'].notna()
+            # Set points to NaN for games that shouldn't be used in rolling calculations
+            tmp.loc[~tmp['valid_for_rolling'], ['pf', 'pa']] = np.nan
+        
         # For rolling, we need history PRIOR to each game. We'll compute expanding means and shift by 1.
         tmp['pf_roll'] = tmp.groupby('team')['pf'].transform(lambda s: s.shift(1).rolling(ROLL_N, min_periods=1).mean())
         tmp['pa_roll'] = tmp.groupby('team')['pa'].transform(lambda s: s.shift(1).rolling(ROLL_N, min_periods=1).mean())

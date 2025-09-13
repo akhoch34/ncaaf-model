@@ -20,10 +20,10 @@ def update_weekly_accuracy(season: int, week: int, book: str = 'DraftKings') -> 
     Returns:
         Dictionary with accuracy metrics
     """
-    from .backtest import backtest
+    from .backtest import backtest_week_time_aware
     
-    # Run backtest for this specific week
-    weekly_results = backtest([season], book=book, min_edge=0.5)
+    # Run time-aware backtest for this specific week (prevents data leakage)
+    weekly_results = backtest_week_time_aware(season, week, book=book, min_edge=0.5)
     
     # Load existing accuracy tracking file
     accuracy_file = os.path.join(PROCESSED_DIR, 'weekly_accuracy.csv')

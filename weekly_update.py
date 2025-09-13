@@ -203,7 +203,45 @@ def send_email_picks(week=None, book="DraftKings"):
 
 """
 
-                    accuracy_summary = f"""{last_week_summary}📊 {CURRENT_SEASON} SEASON TOTALS:
+                    # Get detailed hits/misses for the last completed week if available
+                    detailed_results = ""
+                    if week_num > 1:
+                        try:
+                            results_file = f"src/data/processed/backtests/week_{CURRENT_SEASON}_{week_num-1}_time_aware.csv"
+                            if not os.path.exists(results_file):
+                                results_file = f"data/processed/backtests/week_{CURRENT_SEASON}_{week_num-1}_time_aware.csv"
+                            if not os.path.exists(results_file):
+                                # Fallback to old file name for compatibility
+                                results_file = f"src/data/processed/backtests/week_{CURRENT_SEASON}_{week_num-1}.csv"
+                            if not os.path.exists(results_file):
+                                results_file = f"data/processed/backtests/week_{CURRENT_SEASON}_{week_num-1}.csv"
+                            
+                            if os.path.exists(results_file):
+                                results_df = pd.read_csv(results_file)
+                                hits_misses = []
+                                
+                                # ATS results
+                                ats_results = results_df[results_df['bet_spread'] == True]
+                                for _, game in ats_results.iterrows():
+                                    outcome = "✅ HIT" if game['ats_outcome'] == 1.0 else ("🤝 PUSH" if game['ats_outcome'] == 0.5 else "❌ MISS")
+                                    pick_desc = game.get('ats_pick_description', f"ATS {game['away_team']} @ {game['home_team']}")
+                                    hits_misses.append(f"ATS {pick_desc}: {outcome}")
+                                
+                                # O/U results  
+                                ou_results = results_df[results_df['bet_total'] == True]
+                                for _, game in ou_results.iterrows():
+                                    outcome = "✅ HIT" if game['ou_outcome'] == 1.0 else ("🤝 PUSH" if game['ou_outcome'] == 0.5 else "❌ MISS")
+                                    hits_misses.append(f"O/U {game['away_team']} @ {game['home_team']}: {outcome}")
+                                
+                                if hits_misses:
+                                    detailed_results = f"""
+🎯 WEEK {week_num-1} DETAILED RESULTS:
+{"".join([f"- {result}" + chr(10) for result in hits_misses[:10]])}
+"""
+                        except Exception as e:
+                            logger.debug(f"Could not load detailed results: {e}")
+
+                    accuracy_summary = f"""{detailed_results}{last_week_summary}📊 {CURRENT_SEASON} SEASON TOTALS:
 - ATS Record: {total_ats_wins}-{total_ats_losses}-{total_ats_pushes} ({total_ats_pct:.1%})
 - O/U Record: {total_ou_wins}-{total_ou_losses}-{total_ou_pushes} ({total_ou_pct:.1%})
 """
@@ -232,7 +270,7 @@ def send_email_picks(week=None, book="DraftKings"):
 🏈 NCAAF WEEKLY PICKS - Week {week_num} ({CURRENT_SEASON} Season)
 ═══════════════════════════════════════════════════════════════
 
-📅 Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC
+📅 Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC
 📊 Sportsbook: {book}
 📈 Minimum Edge: 0.5 points
 
@@ -442,8 +480,90 @@ def send_email_picks(week=None, book="DraftKings"):
                 </table>
 """
 
-        # Performance section
+        # Performance section with detailed hits/misses
         if accuracy_summary.strip():
+            # Extract detailed results for HTML formatting
+            detailed_html = ""
+            if week_num > 1:
+                try:
+                    results_file = f"src/data/processed/backtests/week_{CURRENT_SEASON}_{week_num-1}_time_aware.csv"
+                    if not os.path.exists(results_file):
+                        results_file = f"data/processed/backtests/week_{CURRENT_SEASON}_{week_num-1}_time_aware.csv"
+                    if not os.path.exists(results_file):
+                        # Fallback to old file name for compatibility
+                        results_file = f"src/data/processed/backtests/week_{CURRENT_SEASON}_{week_num-1}.csv"
+                    if not os.path.exists(results_file):
+                        results_file = f"data/processed/backtests/week_{CURRENT_SEASON}_{week_num-1}.csv"
+                    
+                    if os.path.exists(results_file):
+                        results_df = pd.read_csv(results_file)
+                        hits_misses_html = []
+                        
+                        # ATS results
+                        ats_results = results_df[results_df['bet_spread'] == True]
+                        for _, game in ats_results.iterrows():
+                            if game['ats_outcome'] == 1.0:
+                                color = "#28a745"
+                                icon = "✅"
+                                outcome = "HIT"
+                            elif game['ats_outcome'] == 0.5:
+                                color = "#ffc107"  
+                                icon = "🤝"
+                                outcome = "PUSH"
+                            else:
+                                color = "#dc3545"
+                                icon = "❌"
+                                outcome = "MISS"
+                            
+                            pick_desc = game.get('ats_pick_description', f"ATS {game['away_team']} @ {game['home_team']}")
+                            
+                            hits_misses_html.append(f"""
+                                <div style="display:flex;align-items:center;margin:8px 0;padding:8px;background-color:rgba(255,255,255,0.1);border-radius:4px;">
+                                    <span style="color:{color};font-size:16px;margin-right:8px;">{icon}</span>
+                                    <span style="flex:1;">ATS {pick_desc}</span>
+                                    <span style="color:{color};font-weight:bold;">{outcome}</span>
+                                </div>
+                            """)
+                        
+                        # O/U results  
+                        ou_results = results_df[results_df['bet_total'] == True]
+                        for _, game in ou_results.iterrows():
+                            if game['ou_outcome'] == 1.0:
+                                color = "#28a745"
+                                icon = "✅"
+                                outcome = "HIT"
+                            elif game['ou_outcome'] == 0.5:
+                                color = "#ffc107"
+                                icon = "🤝"
+                                outcome = "PUSH"
+                            else:
+                                color = "#dc3545"
+                                icon = "❌"
+                                outcome = "MISS"
+                                
+                            hits_misses_html.append(f"""
+                                <div style="display:flex;align-items:center;margin:8px 0;padding:8px;background-color:rgba(255,255,255,0.1);border-radius:4px;">
+                                    <span style="color:{color};font-size:16px;margin-right:8px;">{icon}</span>
+                                    <span style="flex:1;">O/U {game['away_team']} @ {game['home_team']}</span>
+                                    <span style="color:{color};font-weight:bold;">{outcome}</span>
+                                </div>
+                            """)
+                        
+                        if hits_misses_html:
+                            detailed_html = f"""
+                                <table role="presentation" style="width:100%;border-collapse:collapse;background-color:#2c5aa0;margin:25px 0;">
+                                    <tr>
+                                        <td style="color:white;padding:25px;">
+                                            <h3 style="margin:0 0 15px 0;font-size:20px;color:white;">🎯 Week {week_num-1} Detailed Results</h3>
+                                            <div>{"".join(hits_misses_html[:10])}</div>
+                                        </td>
+                                    </tr>
+                                </table>
+                            """
+                except Exception as e:
+                    logger.debug(f"Could not load detailed HTML results: {e}")
+
+            html_body += detailed_html
             html_body += f"""
                 <table role="presentation" style="width:100%;border-collapse:collapse;background-color:#28a745;margin:25px 0;">
                     <tr>
@@ -591,13 +711,14 @@ def main():
     else:
         logger.info("Skipping data fetch")
 
-    # Step 2: Update accuracy for previous week
+    # Step 2: Update accuracy for previous week (if week specified and > 1)
     if not args.skip_accuracy and success:
         if not update_accuracy(args.week, args.book):
             logger.warning("Failed to update accuracy (non-fatal)")
+    elif not args.skip_accuracy:
+        logger.info("Accuracy update skipped: no week specified or week <= 1")
     else:
-        if args.skip_accuracy:
-            logger.info("Skipping accuracy update")
+        logger.info("Skipping accuracy update")
 
     # Step 3: Retrain models
     if not args.skip_train and success:
