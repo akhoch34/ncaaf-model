@@ -63,27 +63,27 @@ jobs:
     
     - name: Run weekly update
       run: |
-        args=""
+        args=()
         if [ "${{ github.event.inputs.week }}" != "" ]; then
-          args="$args --week ${{ github.event.inputs.week }}"
+          args+=(--week "${{ github.event.inputs.week }}")
         fi
         if [ "${{ github.event.inputs.book }}" != "" ]; then
-          args="$args --book ${{ github.event.inputs.book }}"
+          args+=(--book "${{ github.event.inputs.book }}")
         fi
         if [ "${{ github.event.inputs.min_edge }}" != "" ]; then
-          args="$args --min-edge ${{ github.event.inputs.min_edge }}"
+          args+=(--min-edge "${{ github.event.inputs.min_edge }}")
         fi
         if [ "${{ github.event.inputs.skip_fetch }}" == "true" ]; then
-          args="$args --skip-fetch"
+          args+=(--skip-fetch)
         fi
         if [ "${{ github.event.inputs.skip_train }}" == "true" ]; then
-          args="$args --skip-train"
+          args+=(--skip-train)
         fi
         if [ "${{ github.event.inputs.skip_predict }}" == "true" ]; then
-          args="$args --skip-predict"
+          args+=(--skip-predict)
         fi
         
-        python weekly_update.py $args
+        python weekly_update.py "${args[@]}"
     
     - name: Upload predictions artifact
       uses: actions/upload-artifact@v4
