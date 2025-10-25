@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """
 Weekly NCAAF Model Update Script
@@ -7,6 +8,7 @@ This script automates the weekly process of:
 1. Fetching the latest game data for the current season (2025)
 2. Retraining models on all available data (2020-2024 + completed 2025 games)
 3. Generating predictions for upcoming games
+4. Sending a modernized weekly picks email (logic refactored to email_renderer.py)
 
 Usage:
     python weekly_update.py [--week WEEK] [--book BOOK] [--min-edge EDGE]
@@ -21,12 +23,9 @@ import argparse
 import subprocess
 from datetime import datetime
 import logging
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 import pandas as pd
-from typing import Iterable, List, Optional
 
+from typing import Iterable, List, Optional
 
 # Configure logging
 logging.basicConfig(
@@ -43,6 +42,7 @@ logger = logging.getLogger(__name__)
 CURRENT_SEASON = 2025  # Production season
 TRAINING_SEASONS = [2020, 2021, 2022, 2023, 2024]  # Historical data for training
 SRC_DIR = "src"
+
 
 def _coerce_list(recipients: Optional[Iterable[str] | str]) -> List[str]:
     if recipients is None:
@@ -73,6 +73,7 @@ def run_command(cmd, cwd=None):
         logger.error(f"Error output: {e.stderr}")
         return False
 
+
 def run_python_command(python_args, cwd=None):
     """Run a Python command with appropriate environment setup"""
     # In GitHub Actions, Python is already available globally
@@ -96,6 +97,7 @@ def fetch_latest_data():
     python_args = ["-m", "cfb_predictor.cli", "fetch-data", str(CURRENT_SEASON)]
     return run_python_command(python_args, cwd=SRC_DIR)
 
+
 def retrain_models():
     """Retrain models on all available data"""
     logger.info("Retraining models on all available data...")
@@ -104,6 +106,7 @@ def retrain_models():
     season_args = [str(s) for s in all_seasons]
     python_args = ["-m", "cfb_predictor.cli", "train"] + season_args
     return run_python_command(python_args, cwd=SRC_DIR)
+
 
 def get_current_week():
     """
@@ -120,7 +123,6 @@ def get_current_week():
             logger.warning(f"Games file not found: {games_file}")
             return None
 
-        import pandas as pd
         games = pd.read_parquet(games_file)
 
         games['start_date'] = pd.to_datetime(games['start_date'])
@@ -168,6 +170,7 @@ def get_current_week():
         logger.error(f"Error determining current week: {e}")
         return None
 
+
 def update_accuracy(week=None, book="DraftKings"):
     """
     Update accuracy tracking for the previous completed week.
@@ -189,7 +192,6 @@ def update_accuracy(week=None, book="DraftKings"):
 
     # Verify the previous week is fully completed before updating accuracy
     try:
-        import pandas as pd
         games_file = f"{SRC_DIR}/data/raw/games_{CURRENT_SEASON}.parquet"
         if os.path.exists(games_file):
             games = pd.read_parquet(games_file)
@@ -214,6 +216,7 @@ def update_accuracy(week=None, book="DraftKings"):
                    "--book", book]
     return run_python_command(python_args, cwd=SRC_DIR)
 
+
 def generate_predictions(week=None, book="DraftKings", min_edge=0.5):
     """Generate predictions for upcoming games"""
     logger.info(f"Generating predictions for week {week or 'auto'} of {CURRENT_SEASON} season...")
@@ -225,571 +228,20 @@ def generate_predictions(week=None, book="DraftKings", min_edge=0.5):
                    "--min-edge", str(min_edge)]
     return run_python_command(python_args, cwd=SRC_DIR)
 
+
 def send_email_picks(week=None, book="DraftKings"):
-    """Send email with weekly picks and performance summary"""
+    """
+    Thin wrapper that delegates the email generation/sending to email_renderer.py
+    """
     try:
-        from dotenv import load_dotenv
-        load_dotenv()
-
-        gmail_password = os.getenv("GMAIL_APP_PASSWORD")
-        email_from = os.getenv("EMAIL_FROM", "akhoch54@gmail.com")
-        email_to = os.getenv("EMAIL_TO")
-        rcpts = _coerce_list(email_to)
-
-        if not gmail_password or not rcpts:
-            logger.warning("Email credentials not found. Skipping email notification.")
-            return True
-
-        # Locate predictions directory/file
-        predictions_dir = "src/data/processed/predictions"
-        if not os.path.exists(predictions_dir):
-            predictions_dir = "data/processed/predictions"
-        if not os.path.exists(predictions_dir):
-            logger.warning("No predictions directory found for email.")
-            return True
-
-        if week:
-            target_file = f"predictions_{CURRENT_SEASON}_wk{week}.csv"
-            pred_path = os.path.join(predictions_dir, target_file)
-            if os.path.exists(pred_path):
-                latest_pred_file = target_file
-            else:
-                logger.warning(f"No prediction file found for week {week}.")
-                return True
-        else:
-            pred_files = [f for f in os.listdir(predictions_dir)
-                          if f.startswith(f"predictions_{CURRENT_SEASON}")]
-            if not pred_files:
-                logger.warning("No prediction files found for email.")
-                return True
-            pred_files_with_time = [(f, os.path.getmtime(os.path.join(predictions_dir, f)))
-                                    for f in pred_files]
-            latest_pred_file = sorted(pred_files_with_time, key=lambda x: x[1])[-1][0]
-            pred_path = os.path.join(predictions_dir, latest_pred_file)
-
-        if 'pred_path' not in locals():
-            pred_path = os.path.join(predictions_dir, latest_pred_file)
-
-        # Load predictions
-        predictions = pd.read_csv(pred_path)
-        week_num = int(predictions['week'].iloc[0]) if not predictions.empty else (week or 0)
-
-        # Accuracy summary (if available)
-        accuracy_file = "src/data/processed/weekly_accuracy.csv"
-        if not os.path.exists(accuracy_file):
-            accuracy_file = "data/processed/weekly_accuracy.csv"
-
-        accuracy_summary = ""
-        if os.path.exists(accuracy_file):
-            acc_df = pd.read_csv(accuracy_file)
-            if not acc_df.empty:
-                current_season_data = acc_df[acc_df['season'] == CURRENT_SEASON]
-                if not current_season_data.empty:
-                    total_ats_wins = current_season_data['ats_wins'].sum()
-                    total_ats_losses = current_season_data['ats_losses'].sum()
-                    total_ats_pushes = current_season_data['ats_pushes'].sum()
-                    total_ou_wins = current_season_data['ou_wins'].sum()
-                    total_ou_losses = current_season_data['ou_losses'].sum()
-                    total_ou_pushes = current_season_data['ou_pushes'].sum()
-
-                    total_ats_pct = (total_ats_wins / (total_ats_wins + total_ats_losses)
-                                     if (total_ats_wins + total_ats_losses) > 0 else 0)
-                    total_ou_pct = (total_ou_wins / (total_ou_wins + total_ou_losses)
-                                    if (total_ou_wins + total_ou_losses) > 0 else 0)
-
-                    last_week_summary = ""
-                    if week_num > 1:
-                        last_week_data = current_season_data[current_season_data['week'] == week_num - 1]
-                        if not last_week_data.empty:
-                            last_week = last_week_data.iloc[0]
-                            last_week_summary = f"""
-📈 LAST WEEK PERFORMANCE (Week {week_num - 1}):
-- ATS: {last_week['ats_wins']}-{last_week['ats_losses']}-{last_week['ats_pushes']} ({last_week['ats_win_pct']:.1%})
-- O/U: {last_week['ou_wins']}-{last_week['ou_losses']}-{last_week['ou_pushes']} ({last_week['ou_win_pct']:.1%})
-
-"""
-
-                    # Get detailed hits/misses for the last completed week if available
-                    detailed_results = ""
-                    if week_num > 1:
-                        try:
-                            results_file = f"src/data/processed/backtests/week_{CURRENT_SEASON}_{week_num-1}_time_aware.csv"
-                            if not os.path.exists(results_file):
-                                results_file = f"data/processed/backtests/week_{CURRENT_SEASON}_{week_num-1}_time_aware.csv"
-                            if not os.path.exists(results_file):
-                                # Fallback to old file name for compatibility
-                                results_file = f"src/data/processed/backtests/week_{CURRENT_SEASON}_{week_num-1}.csv"
-                            if not os.path.exists(results_file):
-                                results_file = f"data/processed/backtests/week_{CURRENT_SEASON}_{week_num-1}.csv"
-                            
-                            if os.path.exists(results_file):
-                                results_df = pd.read_csv(results_file)
-                                hits_misses = []
-                                
-                                # ATS results
-                                ats_results = results_df[results_df['bet_spread'] == True]
-                                for _, game in ats_results.iterrows():
-                                    outcome = "✅ HIT" if game['ats_outcome'] == 1.0 else ("🤝 PUSH" if game['ats_outcome'] == 0.5 else "❌ MISS")
-                                    pick_desc = game.get('ats_pick_description', f"ATS {game['away_team']} @ {game['home_team']}")
-                                    hits_misses.append(f"ATS {pick_desc}: {outcome}")
-                                
-                                # O/U results  
-                                ou_results = results_df[results_df['bet_total'] == True]
-                                for _, game in ou_results.iterrows():
-                                    outcome = "✅ HIT" if game['ou_outcome'] == 1.0 else ("🤝 PUSH" if game['ou_outcome'] == 0.5 else "❌ MISS")
-                                    hits_misses.append(f"O/U {game['away_team']} @ {game['home_team']}: {outcome}")
-                                
-                                if hits_misses:
-                                    detailed_results = f"""
-🎯 WEEK {week_num-1} DETAILED RESULTS:
-{"".join([f"- {result}" + chr(10) for result in hits_misses[:10]])}
-"""
-                        except Exception as e:
-                            logger.debug(f"Could not load detailed results: {e}")
-
-                    accuracy_summary = f"""{detailed_results}{last_week_summary}📊 {CURRENT_SEASON} SEASON TOTALS:
-- ATS Record: {total_ats_wins}-{total_ats_losses}-{total_ats_pushes} ({total_ats_pct:.1%})
-- O/U Record: {total_ou_wins}-{total_ou_losses}-{total_ou_pushes} ({total_ou_pct:.1%})
-"""
-                else:
-                    recent_acc = acc_df.tail(1).iloc[0]
-                    accuracy_summary = f"""
-📊 RECENT PERFORMANCE:
-- ATS Record: {recent_acc['ats_wins']}-{recent_acc['ats_losses']}-{recent_acc['ats_pushes']} ({recent_acc['ats_win_pct']:.1%})
-- O/U Record: {recent_acc['ou_wins']}-{recent_acc['ou_losses']}-{recent_acc['ou_pushes']} ({recent_acc['ou_win_pct']:.1%})
-"""
-
-        # Filter to actual picks
-        ats_picks = predictions[predictions['pick_spread'] != 'no bet'].copy()
-        ats_picks['abs_edge_spread'] = ats_picks['edge_spread'].abs()
-        ats_picks = ats_picks.sort_values('abs_edge_spread', ascending=False)
-
-        ou_picks = predictions[predictions['pick_total'] != 'no bet'].copy()
-        ou_picks['abs_edge_total'] = ou_picks['edge_total'].abs()
-        ou_picks = ou_picks.sort_values('abs_edge_total', ascending=False)
-
-        subject = f"🏈 NCAAF Week {week_num} Picks - {CURRENT_SEASON} Season"
-
-        # ---------------- Plain text version ----------------
-        body = f"""
-═══════════════════════════════════════════════════════════════
-🏈 NCAAF WEEKLY PICKS - Week {week_num} ({CURRENT_SEASON} Season)
-═══════════════════════════════════════════════════════════════
-
-📅 Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC
-📊 Sportsbook: {book}
-📈 Minimum Edge: 0.5 points
-
-{accuracy_summary}
-
-🎯 TOP AGAINST THE SPREAD PICKS ({len(ats_picks)} total):
-{"="*65}
-"""
-        for i, (_, game) in enumerate(ats_picks.iterrows(), 1):
-            edge = abs(game['edge_spread'])
-            game_time = pd.to_datetime(game['start_date']).strftime('%a %m/%d %I:%M%p ET')
-            pred_margin = game.get('pred_margin', 0.0)
-            spread = game['spread_line']
-
-            if "+" in game['pick_spread']:
-                pick_team = game['pick_spread'].replace(' + ATS', '')
-                spread_display = f"+{abs(spread)}"
-            else:
-                pick_team = game['pick_spread'].replace(' - ATS', '')
-                spread_display = f"{spread}"
-
-            body += f"""
-{i:2d}. {game['away_team']} @ {game['home_team']}
-    🕒 {game_time}
-    🎯 PICK: {pick_team} ({spread_display})
-    📊 Predicted Margin (home): {pred_margin:+.1f}
-    💰 Edge: {edge:.1f} points
-"""
-
-        body += f"""
-{"="*65}
-
-🎲 TOP OVER/UNDER PICKS ({len(ou_picks)} total):
-{"="*65}
-"""
-        for i, (_, game) in enumerate(ou_picks.iterrows(), 1):
-            edge = abs(game['edge_total'])
-            game_time = pd.to_datetime(game['start_date']).strftime('%a %m/%d %I:%M%p ET')
-            pred_total = float(game['pred_total'])
-            total_line = game['total_line']
-            pick = game['pick_total']
-
-            body += f"""
-{i:2d}. {game['away_team']} @ {game['home_team']}
-    🕒 {game_time}
-    🎯 PICK: {pick} {total_line}
-    📊 Predicted Total: {pred_total:.1f}
-    💰 Edge: {edge:.1f} points
-"""
-
-        body += f"""
-{"="*65}
-
-📂 ADDITIONAL INFO:
-• Full picks file: {latest_pred_file}
-• Training Data: 2020-{CURRENT_SEASON-1} seasons + completed {CURRENT_SEASON} games
-• All times shown in Eastern Time
-
-💡 BETTING NOTES:
-• Predicted Line is from the HOME team's perspective.
-• Edge = |Predicted Value - Book Line|
-• Only picks with minimum 0.5 point edge are shown
-• ATS = Against The Spread
-
-═══════════════════════════════════════════════════════════════
-🤖 Generated by NCAAF Predictor
-═══════════════════════════════════════════════════════════════
-"""
-
-        # ---------------- HTML version ----------------
-        # Helpers for ET conversion and windowed grouping
-        import pytz
-        eastern = pytz.timezone("US/Eastern")
-
-        def to_et(df: pd.DataFrame, start_col: str = "start_date") -> pd.DataFrame:
-            out = df.copy()
-            # robust to naive/aware datetimes; treat as UTC then convert
-            start_dt = pd.to_datetime(out[start_col], utc=True)
-            out["start_date_et"] = start_dt.dt.tz_convert(eastern)
-            out["date_only"] = out["start_date_et"].dt.date
-            out["game_time"] = out["start_date_et"].dt.strftime("%I:%M %p ET")
-            return out
-
-        def window_group(df: pd.DataFrame, minutes: int = 60):
-            """
-            Groups by date, then by floor(window) of ET time.
-            Returns list of tuples: (date_str, time_range, block_df_sorted)
-            """
-            df = df.sort_values("start_date_et")
-            window_start = df["start_date_et"].dt.floor(f"{minutes}min")
-            df = df.assign(_window_start=window_start)
-
-            groups = []
-            for (d, wstart), block in df.groupby(["date_only", "_window_start"]):
-                block = block.copy().sort_values(["start_date_et"])
-                first_time = block.iloc[0]["game_time"]
-                last_time = block.iloc[-1]["game_time"]
-                time_range = first_time if first_time == last_time else f"{first_time} - {last_time}"
-                date_str = pd.Timestamp(d).strftime("%a, %b %d")
-                groups.append((date_str, time_range, block))
-            return groups
-
-        def section_header(title: str, count: int) -> str:
-            return f"""
-                <h2 style="color:#2c5aa0;border-bottom:3px solid #2c5aa0;padding-bottom:10px;margin:30px 0 25px 0;font-size:24px;">
-                    {title} ({count} total)
-                </h2>
-            """
-
-        def block_header(date_str: str, time_range: str) -> str:
-            return f"""
-                <h3 style="color:#2c5aa0;font-size:20px;margin:25px 0 15px 0;border-left:4px solid #2c5aa0;padding-left:15px;">
-                    {date_str} • {time_range}
-                </h3>
-            """
-
-        def game_card_row(left_label: str, matchup: str,
-                          mid_label: str, right_label: str,
-                          right_value: str, kickoff_html: str, edge: float,
-                          highlight_threshold: float = 2.0) -> str:
-            highlight = edge >= highlight_threshold
-            pick_bg    = "#28a745" if highlight else "#f8f9fa"
-            pick_color = "white"   if highlight else "#333333"
-            edge_bg    = pick_bg
-            edge_color = pick_color
-            return f"""
-                <table role="presentation" style="width:100%;border-collapse:collapse;background-color:#ffffff;border:1px solid #e9ecef;border-left:4px solid #2c5aa0;margin:15px 0;">
-                    <tr>
-                        <td style="padding:20px;color:#333333;">
-                            <table role="presentation" style="width:100%;border-collapse:collapse;margin-bottom:15px;">
-                                <tr>
-                                    <td style="font-size:18px;font-weight:bold;color:#2c5aa0;">{matchup}</td>
-                                    <td style="text-align:right;color:#6c757d;font-size:14px;">{kickoff_html}</td>
-                                </tr>
-                            </table>
-                            <table role="presentation" style="width:100%;border-collapse:collapse;">
-                                <tr>
-                                    <td style="text-align:center;padding:10px;background-color:{pick_bg};color:{pick_color};width:33.33%;">
-                                        <div style="font-size:13px;margin-bottom:5px;">{left_label}</div>
-                                        <div style="font-weight:bold;">{right_label}</div>
-                                    </td>
-                                    <td style="text-align:center;padding:10px;background-color:#f8f9fa;color:#333333;width:33.33%;">
-                                        <div style="font-size:13px;color:#6c757d;margin-bottom:5px;">{mid_label}</div>
-                                        <div style="font-weight:bold;color:#2c5aa0;">{right_value}</div>
-                                    </td>
-                                    <td style="text-align:center;padding:10px;background-color:{edge_bg};color:{edge_color};width:33.33%;">
-                                        <div style="font-size:13px;margin-bottom:5px;">💰 Edge</div>
-                                        <div style="font-weight:bold;">{edge:.1f} pts</div>
-                                    </td>
-                                </tr>
-                            </table>
-                        </td>
-                    </tr>
-                </table>
-            """
-
-        # Header + Info boxes
-        html_body = f"""
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>NCAAF Week {week_num} Picks</title>
-    <!--[if mso]>
-    <style type="text/css">
-        table {{ border-collapse: collapse; }}
-        .header-table {{ width: 100%; }}
-        .content-table {{ width: 100%; }}
-    </style>
-    <![endif]-->
-</head>
-<body style="margin:0;padding:0;font-family:Arial,sans-serif;line-height:1.6;color:#333333;background-color:#f8f9fa;">
-    <table role="presentation" style="width:100%;max-width:800px;margin:0 auto;border-collapse:collapse;">
-        <tr>
-            <td style="background-color:#2c5aa0;color:white;text-align:center;padding:30px;">
-                <h1 style="margin:0;font-size:28px;font-weight:bold;">🏈 NCAAF Weekly Picks</h1>
-                <div style="margin-top:10px;font-size:18px;">Week {week_num} • {CURRENT_SEASON} Season</div>
-            </td>
-        </tr>
-    </table>
-
-    <table role="presentation" style="width:100%;max-width:800px;margin:0 auto;border-collapse:collapse;background-color:#ffffff;">
-        <tr>
-            <td style="padding:30px;color:#333333;">
-
-                <table role="presentation" style="width:100%;border-collapse:collapse;background-color:#f8f9fa;border-left:4px solid #2c5aa0;margin:20px 0;">
-                    <tr>
-                        <td style="padding:20px;">
-                            <table role="presentation" style="width:100%;border-collapse:collapse;">
-                                <tr>
-                                    <td style="text-align:center;padding:10px;width:33.33%;">
-                                        <strong style="display:block;color:#2c5aa0;font-size:16px;">📅 Generated</strong>
-                                        <span style="color:#333333;">{datetime.now().strftime('%B %d, %Y')}</span>
-                                    </td>
-                                    <td style="text-align:center;padding:10px;width:33.33%;">
-                                        <strong style="display:block;color:#2c5aa0;font-size:16px;">📊 Sportsbook</strong>
-                                        <span style="color:#333333;">{book}</span>
-                                    </td>
-                                    <td style="text-align:center;padding:10px;width:33.33%;">
-                                        <strong style="display:block;color:#2c5aa0;font-size:16px;">📈 Min Edge</strong>
-                                        <span style="color:#333333;">0.5 points</span>
-                                    </td>
-                                </tr>
-                            </table>
-                        </td>
-                    </tr>
-                </table>
-"""
-
-        # Performance section with detailed hits/misses
-        if accuracy_summary.strip():
-            # Extract detailed results for HTML formatting
-            detailed_html = ""
-            if week_num > 1:
-                try:
-                    results_file = f"src/data/processed/backtests/week_{CURRENT_SEASON}_{week_num-1}_time_aware.csv"
-                    if not os.path.exists(results_file):
-                        results_file = f"data/processed/backtests/week_{CURRENT_SEASON}_{week_num-1}_time_aware.csv"
-                    if not os.path.exists(results_file):
-                        # Fallback to old file name for compatibility
-                        results_file = f"src/data/processed/backtests/week_{CURRENT_SEASON}_{week_num-1}.csv"
-                    if not os.path.exists(results_file):
-                        results_file = f"data/processed/backtests/week_{CURRENT_SEASON}_{week_num-1}.csv"
-                    
-                    if os.path.exists(results_file):
-                        results_df = pd.read_csv(results_file)
-                        hits_misses_html = []
-                        
-                        # ATS results
-                        ats_results = results_df[results_df['bet_spread'] == True]
-                        for _, game in ats_results.iterrows():
-                            if game['ats_outcome'] == 1.0:
-                                color = "#28a745"
-                                icon = "✅"
-                                outcome = "HIT"
-                            elif game['ats_outcome'] == 0.5:
-                                color = "#ffc107"  
-                                icon = "🤝"
-                                outcome = "PUSH"
-                            else:
-                                color = "#dc3545"
-                                icon = "❌"
-                                outcome = "MISS"
-                            
-                            pick_desc = game.get('ats_pick_description', f"ATS {game['away_team']} @ {game['home_team']}")
-                            
-                            hits_misses_html.append(f"""
-                                <div style="display:flex;align-items:center;margin:8px 0;padding:8px;background-color:rgba(255,255,255,0.1);border-radius:4px;">
-                                    <span style="color:{color};font-size:16px;margin-right:8px;">{icon}</span>
-                                    <span style="flex:1;">ATS {pick_desc}</span>
-                                    <span style="color:{color};font-weight:bold;">{outcome}</span>
-                                </div>
-                            """)
-                        
-                        # O/U results  
-                        ou_results = results_df[results_df['bet_total'] == True]
-                        for _, game in ou_results.iterrows():
-                            if game['ou_outcome'] == 1.0:
-                                color = "#28a745"
-                                icon = "✅"
-                                outcome = "HIT"
-                            elif game['ou_outcome'] == 0.5:
-                                color = "#ffc107"
-                                icon = "🤝"
-                                outcome = "PUSH"
-                            else:
-                                color = "#dc3545"
-                                icon = "❌"
-                                outcome = "MISS"
-                                
-                            hits_misses_html.append(f"""
-                                <div style="display:flex;align-items:center;margin:8px 0;padding:8px;background-color:rgba(255,255,255,0.1);border-radius:4px;">
-                                    <span style="color:{color};font-size:16px;margin-right:8px;">{icon}</span>
-                                    <span style="flex:1;">O/U {game['away_team']} @ {game['home_team']}</span>
-                                    <span style="color:{color};font-weight:bold;">{outcome}</span>
-                                </div>
-                            """)
-                        
-                        if hits_misses_html:
-                            detailed_html = f"""
-                                <table role="presentation" style="width:100%;border-collapse:collapse;background-color:#2c5aa0;margin:25px 0;">
-                                    <tr>
-                                        <td style="color:white;padding:25px;">
-                                            <h3 style="margin:0 0 15px 0;font-size:20px;color:white;">🎯 Week {week_num-1} Detailed Results</h3>
-                                            <div>{"".join(hits_misses_html[:10])}</div>
-                                        </td>
-                                    </tr>
-                                </table>
-                            """
-                except Exception as e:
-                    logger.debug(f"Could not load detailed HTML results: {e}")
-
-            html_body += detailed_html
-            html_body += f"""
-                <table role="presentation" style="width:100%;border-collapse:collapse;background-color:#28a745;margin:25px 0;">
-                    <tr>
-                        <td style="color:white;padding:25px;">
-                            <h3 style="margin:0 0 15px 0;font-size:20px;color:white;">📊 Performance Summary</h3>
-                            <div style="white-space:pre-line;font-family:monospace;color:white;">{accuracy_summary.strip()}</div>
-                        </td>
-                    </tr>
-                </table>
-"""
-
-        # ---------- ATS SECTION ----------
-        html_body += section_header("🎯 Against The Spread Picks", len(ats_picks))
-        ats_et = to_et(ats_picks)
-        ats_et["edge_abs"] = ats_et["edge_spread"].abs()
-
-        for d_str, time_range, block in window_group(ats_et, minutes=60):
-            block_sorted = block.sort_values(["start_date_et", "edge_abs"], ascending=[True, False])
-            html_body += block_header(d_str, time_range)
-            for _, game in block_sorted.iterrows():
-                edge = float(abs(game["edge_spread"]))
-                spread = game["spread_line"]
-                # Predicted line from HOME perspective; fallback to pred_margin if needed
-                pred_home = float(game.get("pred_line", game.get("pred_margin", 0.0)))
-                pred_home_disp = f"{game['home_team']} {pred_home:+.1f}"
-
-                if "+" in game["pick_spread"]:
-                    pick_team = game["pick_spread"].replace(" + ATS", "")
-                    spread_disp = f"+{abs(spread)}"
-                else:
-                    pick_team = game["pick_spread"].replace(" - ATS", "")
-                    spread_disp = f"{spread}"
-
-                html_body += game_card_row(
-                    left_label="🎯 PICK",
-                    matchup=f"{game['away_team']} @ {game['home_team']}",
-                    mid_label="📊 Predicted Line (home)",
-                    right_label=f"{pick_team} ({spread_disp})",
-                    right_value=pred_home_disp,
-                    kickoff_html=game["game_time"],
-                    edge=edge
-                )
-
-        # ---------- O/U SECTION ----------
-        html_body += section_header("🎲 Over/Under Picks", len(ou_picks))
-        ou_et = to_et(ou_picks)
-        ou_et["edge_abs"] = ou_et["edge_total"].abs()
-
-        for d_str, time_range, block in window_group(ou_et, minutes=60):
-            block_sorted = block.sort_values(["start_date_et", "edge_abs"], ascending=[True, False])
-            html_body += block_header(d_str, time_range)
-            for _, game in block_sorted.iterrows():
-                edge = float(abs(game["edge_total"]))
-                pick = game["pick_total"]
-                total_line = game["total_line"]
-                pred_total = float(game["pred_total"])
-                html_body += game_card_row(
-                    left_label="🎯 PICK",
-                    matchup=f"{game['away_team']} @ {game['home_team']}",
-                    mid_label="📊 Predicted Total",
-                    right_label=f"{pick} {total_line}",
-                    right_value=f"{pred_total:.1f}",
-                    kickoff_html=game["game_time"],
-                    edge=edge
-                )
-
-        # ---------- Notes / legend ----------
-        html_body += f"""
-                <table role="presentation" style="width:100%;border-collapse:collapse;background-color:#fff3cd;border:1px solid #ffeaa7;margin:25px 0;">
-                    <tr>
-                        <td style="color:#856404;padding:20px;">
-                            <h4 style="margin:0 0 10px 0;color:#856404;">💡 Betting Notes</h4>
-                            <ul style="margin:10px 0;padding-left:20px;color:#856404;">
-                                <li><strong>Predicted Line (home)</strong> is from the <em>home team's</em> perspective (e.g., "HomeTeam +3.5").</li>
-                                <li><strong>Edge</strong> = |Model Prediction − Book Line|.</li>
-                                <li>Only picks with minimum 0.5 point edge are shown.</li>
-                                <li>ATS = Against The Spread. All times Eastern.</li>
-                                <li>Training data: 2020–{CURRENT_SEASON-1} + completed {CURRENT_SEASON} games.</li>
-                            </ul>
-                        </td>
-                    </tr>
-                </table>
-
-            </td>
-        </tr>
-    </table>
-
-    <table role="presentation" style="width:100%;max-width:800px;margin:0 auto;border-collapse:collapse;">
-        <tr>
-            <td style="background-color:#2c5aa0;color:white;text-align:center;padding:25px;">
-                <div>🤖 Generated by NCAAF Predictor</div>
-            </td>
-        </tr>
-    </table>
-</body>
-</html>
-"""
-
-        # Send email
-        msg = MIMEMultipart('alternative')
-        msg['From'] = email_from
-        msg['To'] = ", ".join(rcpts)
-        msg['Subject'] = subject
-
-        msg.attach(MIMEText(body, 'plain'))
-        msg.attach(MIMEText(html_body, 'html'))
-
-        server = smtplib.SMTP('smtp.gmail.com', 587)
-        server.starttls()
-        server.login(email_from, gmail_password)
-        server.sendmail(msg['From'], rcpts, msg.as_string())
-        server.quit()
-
-        logger.info(f"Email sent successfully to {rcpts}")
-        return True
-
+        from email_renderer import send_email_picks as _send
     except Exception as e:
-        logger.error(f"Failed to send email: {e}")
+        logger.error(f"Failed to import email_renderer.send_email_picks: {e}")
         return False
-    
+
+    return _send(week=week, book=book, CURRENT_SEASON=CURRENT_SEASON, SRC_DIR=SRC_DIR)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Weekly NCAAF model update and prediction")
     parser.add_argument("--week", type=int, help="Specific week to predict (default: auto)")
@@ -851,7 +303,7 @@ def main():
         if args.skip_predict:
             logger.info("Skipping prediction generation")
 
-    # Step 5: Send email notification
+    # Step 5: Send email notification (refactored)
     if not args.skip_email and success:
         if not send_email_picks(week, args.book):
             logger.warning("Failed to send email notification (non-fatal)")
@@ -866,6 +318,7 @@ def main():
     else:
         logger.error("Weekly update failed. Check logs for details.")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()
