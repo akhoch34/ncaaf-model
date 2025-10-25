@@ -105,13 +105,108 @@ def retrain_models():
     python_args = ["-m", "cfb_predictor.cli", "train"] + season_args
     return run_python_command(python_args, cwd=SRC_DIR)
 
+def get_current_week():
+    """
+    Determine the current week for predictions based on game schedule.
+
+    Logic:
+    1. If a week has games in progress (started but not all completed), that's the current week
+    2. Otherwise, return the week with the earliest upcoming games
+    3. This handles Friday afternoon runs where we want predictions for Saturday's games
+    """
+    try:
+        games_file = f"{SRC_DIR}/data/raw/games_{CURRENT_SEASON}.parquet"
+        if not os.path.exists(games_file):
+            logger.warning(f"Games file not found: {games_file}")
+            return None
+
+        import pandas as pd
+        games = pd.read_parquet(games_file)
+
+        games['start_date'] = pd.to_datetime(games['start_date'])
+        now = pd.Timestamp.now(tz='UTC')
+
+        # First, check if any week is "in progress" (some games played, some not)
+        for week in sorted(games['week'].unique()):
+            week_games = games[games['week'] == week]
+            completed = len(week_games[pd.notna(week_games['home_points'])])
+            total = len(week_games)
+
+            # If this week has started but isn't finished, this is the current week
+            if 0 < completed < total:
+                logger.info(f"Week {week} is in progress ({completed}/{total} games completed)")
+                return int(week)
+
+        # No week in progress, find the week with the earliest upcoming games
+        earliest_week = None
+        earliest_time = None
+
+        for week in sorted(games['week'].unique()):
+            week_games = games[games['week'] == week]
+            upcoming = week_games[
+                pd.isna(week_games['home_points']) &
+                (week_games['start_date'] > now)
+            ]
+
+            if len(upcoming) > 0:
+                week_earliest = upcoming['start_date'].min()
+                if earliest_time is None or week_earliest < earliest_time:
+                    earliest_time = week_earliest
+                    earliest_week = int(week)
+
+        if earliest_week is not None:
+            logger.info(f"Week {earliest_week} has earliest upcoming games (starts {earliest_time})")
+            return earliest_week
+
+        # Fallback: find last completed week + 1
+        completed_games = games[pd.notna(games['home_points'])]
+        if not completed_games.empty:
+            return int(completed_games['week'].max()) + 1
+        return 1
+
+    except Exception as e:
+        logger.error(f"Error determining current week: {e}")
+        return None
+
 def update_accuracy(week=None, book="DraftKings"):
-    """Update accuracy tracking for the previous completed week"""
-    if week is None or week <= 1:
-        logger.info("Skipping accuracy update - no previous week or week <= 1")
+    """
+    Update accuracy tracking for the previous completed week.
+
+    This will update accuracy for week-1, but only if that week is fully completed
+    (all games have final scores).
+    """
+    if week is None:
+        week = get_current_week()
+        if week is None:
+            logger.info("Could not determine current week, skipping accuracy update")
+            return True
+
+    if week <= 1:
+        logger.info("Skipping accuracy update - week <= 1, no previous week to evaluate")
         return True
 
     prev_week = week - 1
+
+    # Verify the previous week is fully completed before updating accuracy
+    try:
+        import pandas as pd
+        games_file = f"{SRC_DIR}/data/raw/games_{CURRENT_SEASON}.parquet"
+        if os.path.exists(games_file):
+            games = pd.read_parquet(games_file)
+            prev_week_games = games[games['week'] == prev_week]
+
+            if len(prev_week_games) > 0:
+                completed = prev_week_games[pd.notna(prev_week_games['home_points'])]
+                completion_pct = len(completed) / len(prev_week_games)
+
+                if completion_pct < 1.0:
+                    logger.info(f"Week {prev_week} is not fully completed ({len(completed)}/{len(prev_week_games)} games). Skipping accuracy update.")
+                    return True
+
+                logger.info(f"Week {prev_week} is fully completed ({len(completed)} games). Updating accuracy...")
+    except Exception as e:
+        logger.warning(f"Could not verify week completion: {e}. Proceeding with accuracy update...")
+
     logger.info(f"Updating accuracy for completed week {prev_week} of {CURRENT_SEASON} season...")
     python_args = ["-m", "cfb_predictor.cli", "update-accuracy",
                    "--season", str(CURRENT_SEASON),
@@ -722,12 +817,19 @@ def main():
     else:
         logger.info("Skipping data fetch")
 
+    # Determine the week if not specified
+    week = args.week
+    if week is None and success:
+        week = get_current_week()
+        if week is not None:
+            logger.info(f"Auto-determined current week: {week}")
+        else:
+            logger.warning("Could not auto-determine week, will use 'auto' mode for predictions")
+
     # Step 2: Update accuracy for previous week (if week specified and > 1)
     if not args.skip_accuracy and success:
-        if not update_accuracy(args.week, args.book):
+        if not update_accuracy(week, args.book):
             logger.warning("Failed to update accuracy (non-fatal)")
-    elif not args.skip_accuracy:
-        logger.info("Accuracy update skipped: no week specified or week <= 1")
     else:
         logger.info("Skipping accuracy update")
 
@@ -742,7 +844,7 @@ def main():
 
     # Step 4: Generate predictions
     if not args.skip_predict and success:
-        if not generate_predictions(args.week, args.book, args.min_edge):
+        if not generate_predictions(week, args.book, args.min_edge):
             logger.error("Failed to generate predictions")
             success = False
     else:
@@ -751,7 +853,7 @@ def main():
 
     # Step 5: Send email notification
     if not args.skip_email and success:
-        if not send_email_picks(args.week, args.book):
+        if not send_email_picks(week, args.book):
             logger.warning("Failed to send email notification (non-fatal)")
     else:
         if args.skip_email:

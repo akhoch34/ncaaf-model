@@ -1,0 +1,52 @@
+season,week,home_team,away_team,home_points,away_points,actual_margin,spread_line,ats_pick_team,ats_pick_description,spread_result,bet_spread,ats_outcome,bet_total,ou_outcome,edge_spread,edge_total
+2025,6,New Mexico State,Sam Houston,37.0,10.0,27.0,1.5,New Mexico State,New Mexico State +1.5,WIN,True,1.0,False,,14.189777189572386,-0.06242278366909204
+2025,6,South Florida,Charlotte,54.0,26.0,28.0,-28.5,Charlotte,Charlotte +28.5,WIN,True,1.0,False,,47.37673104453897,0.473198408102121
+2025,6,Delaware,Western Kentucky,24.0,27.0,-3.0,-2.5,Delaware,Delaware -2.5,LOSS,True,0.0,True,1.0,8.6086669406931,-7.2365770840366395
+2025,6,San José State,New Mexico,35.0,28.0,7.0,-2.5,New Mexico,New Mexico +2.5,LOSS,True,0.0,True,0.0,1.0288951864852107,-3.4053798865313425
+2025,6,BYU,West Virginia,38.0,24.0,14.0,-19.5,BYU,BYU -19.5,LOSS,True,0.0,True,1.0,41.36787350449248,7.833467663784397
+2025,6,San Diego State,Colorado State,45.0,24.0,21.0,-4.5,San Diego State,San Diego State -4.5,WIN,True,1.0,True,1.0,23.005497682638886,13.483499908944424
+2025,6,Purdue,Illinois,27.0,43.0,-16.0,7.5,Illinois,Illinois -7.5,WIN,True,1.0,True,0.0,-8.056048517325694,-0.6849262491648318
+2025,6,Baylor,Kansas State,35.0,34.0,1.0,-4.5,Baylor,Baylor -4.5,LOSS,True,0.0,True,0.0,15.63988982893984,-5.1795201021720345
+2025,6,Michigan,Wisconsin,24.0,10.0,14.0,-17.5,Wisconsin,Wisconsin +17.5,WIN,True,1.0,True,0.0,31.69580048225131,12.500739219268596
+2025,6,UAB,Army,13.0,31.0,-18.0,6.5,UAB,UAB +6.5,LOSS,True,0.0,True,0.0,3.490217902789329,1.0992377821114374
+2025,6,Pittsburgh,Boston College,48.0,7.0,41.0,-6.5,Pittsburgh,Pittsburgh -6.5,WIN,True,1.0,True,1.0,17.575008912774106,1.5233053037505329
+2025,6,Georgia,Kentucky,35.0,14.0,21.0,-19.5,Kentucky,Kentucky +19.5,LOSS,True,0.0,True,0.0,33.965033896737054,4.813140156770537
+2025,6,Cincinnati,Iowa State,38.0,30.0,8.0,-1.5,Cincinnati,Cincinnati -1.5,WIN,True,1.0,False,,4.437393169354202,-0.16598904450541596
+2025,6,Ball State,Ohio,20.0,14.0,6.0,14.5,Ohio,Ohio -14.5,WIN,True,1.0,True,0.0,-15.24479528970838,3.3466448575056447
+2025,6,Navy,Air Force,34.0,31.0,3.0,-13.5,Navy,Navy -13.5,LOSS,True,0.0,True,1.0,36.66488294430071,3.6517813012882456
+2025,6,North Carolina,Clemson,10.0,38.0,-28.0,15.5,Clemson,Clemson -15.5,WIN,True,1.0,True,1.0,-4.144101984426506,8.02471909095371
+2025,6,Virginia Tech,Wake Forest,23.0,30.0,-7.0,-4.5,Wake Forest,Wake Forest +4.5,WIN,True,1.0,True,1.0,8.484900279418614,3.9650638447328603
+2025,6,Temple,UTSA,27.0,21.0,6.0,6.5,Temple,Temple +6.5,LOSS,True,0.0,True,1.0,1.8194764466710769,-2.1435007358946763
+2025,6,NC State,Campbell,56.0,10.0,46.0,-41.5,Campbell,Campbell +41.5,LOSS,True,0.0,True,0.0,54.666039355057286,-6.125883931428511
+2025,6,Massachusetts,Western Michigan,3.0,21.0,-18.0,12.5,Western Michigan,Western Michigan -12.5,WIN,True,1.0,True,0.0,-12.263916236858911,9.465704414498944
+2025,6,Arizona,Oklahoma State,41.0,13.0,28.0,-23.5,Oklahoma State,Oklahoma State +23.5,LOSS,True,0.0,True,1.0,42.08531010814866,-2.8097370455847255
+2025,6,UConn,Florida International,51.0,10.0,41.0,-6.5,UConn,UConn -6.5,WIN,True,1.0,True,1.0,18.901586846332783,3.5733819538234
+2025,6,SMU,Syracuse,31.0,18.0,13.0,-17.5,Syracuse,Syracuse +17.5,WIN,True,1.0,False,,26.765273264138113,0.26013535076926075
+2025,6,Notre Dame,Boise State,28.0,7.0,21.0,-21.5,Boise State,Boise State +21.5,WIN,True,1.0,True,1.0,28.72562710088848,-6.2463517709157514
+2025,6,Akron,Central Michigan,28.0,22.0,6.0,6.5,Central Michigan,Central Michigan -6.5,WIN,True,1.0,True,1.0,-5.2078529080035185,6.163700253088649
+2025,6,Georgia State,James Madison,7.0,14.0,-7.0,18.5,James Madison,James Madison -18.5,WIN,True,1.0,True,0.0,-23.000815508642415,3.2341448826613473
+2025,6,Northern Illinois,Miami (OH),14.0,25.0,-11.0,4.5,Northern Illinois,Northern Illinois +4.5,LOSS,True,0.0,True,0.0,1.280221171768292,13.64359530199242
+2025,6,Florida,Texas,29.0,21.0,8.0,4.5,Texas,Texas -4.5,LOSS,True,0.0,True,1.0,-4.607256951304029,11.801253881650808
+2025,6,App State,Oregon State,27.0,23.0,4.0,-2.5,App State,App State -2.5,WIN,True,1.0,True,1.0,19.460481529749252,-0.8577813075099314
+2025,6,UCLA,Penn State,42.0,37.0,5.0,24.5,Penn State,Penn State -24.5,WIN,True,1.0,True,1.0,-33.50623273456188,7.594424818958075
+2025,6,Louisville,Virginia,27.0,30.0,-3.0,-6.5,Louisville,Louisville -6.5,LOSS,True,0.0,True,1.0,15.123498706461458,-5.952861247922755
+2025,6,Buffalo,Eastern Michigan,31.0,30.0,1.0,-9.5,Buffalo,Buffalo -9.5,LOSS,True,0.0,True,1.0,23.58903686368992,0.9890754299711801
+2025,6,Alabama,Vanderbilt,30.0,14.0,16.0,-13.5,Vanderbilt,Vanderbilt +13.5,LOSS,True,0.0,True,1.0,13.609478500223672,-2.3967713472618115
+2025,6,Northwestern,UL Monroe,42.0,7.0,35.0,-13.5,UL Monroe,UL Monroe +13.5,LOSS,True,0.0,True,1.0,16.679350637383706,10.834315721499038
+2025,6,Maryland,Washington,20.0,24.0,-4.0,5.5,Maryland,Maryland +5.5,LOSS,True,0.0,True,0.0,6.645484576177228,2.4024040920746046
+2025,6,Oklahoma,Kent State,44.0,0.0,44.0,-46.5,Kent State,Kent State +46.5,WIN,True,1.0,False,,71.38924722154931,0.22153720448397962
+2025,6,Arkansas State,Texas State,31.0,30.0,1.0,14.5,Texas State,Texas State -14.5,WIN,True,1.0,True,1.0,-18.40344020131456,-7.973947680624832
+2025,6,Nebraska,Michigan State,38.0,27.0,11.0,-12.5,Michigan State,Michigan State +12.5,WIN,True,1.0,True,1.0,22.14600156976072,6.267122235751302
+2025,6,Old Dominion,Coastal Carolina,47.0,7.0,40.0,-18.5,Coastal Carolina,Coastal Carolina +18.5,LOSS,True,0.0,True,1.0,33.161427043240785,1.007925632011279
+2025,6,Troy,South Alabama,31.0,24.0,7.0,2.5,Troy,Troy +2.5,WIN,True,1.0,True,1.0,10.181089924826221,8.392061974469726
+2025,6,Wyoming,UNLV,17.0,31.0,-14.0,4.5,UNLV,UNLV -4.5,WIN,True,1.0,True,0.0,-4.8603225844203175,1.5278222245849378
+2025,6,Rice,Florida Atlantic,21.0,27.0,-6.0,-4.5,Rice,Rice -4.5,LOSS,True,0.0,False,,18.005919257526514,-0.4955524047734414
+2025,6,Houston,Texas Tech,11.0,35.0,-24.0,11.5,Texas Tech,Texas Tech -11.5,WIN,True,1.0,True,0.0,-6.926933284056547,3.5511971901812984
+2025,6,UCF,Kansas,20.0,27.0,-7.0,3.5,UCF,UCF +3.5,LOSS,True,0.0,True,0.0,4.084383842697268,2.4556964988971686
+2025,6,Ohio State,Minnesota,42.0,3.0,39.0,-23.5,Minnesota,Minnesota +23.5,LOSS,True,0.0,True,1.0,37.89842861391171,11.869945378453664
+2025,6,TCU,Colorado,35.0,21.0,14.0,-14.5,Colorado,Colorado +14.5,WIN,True,1.0,True,1.0,28.94091747522441,-0.8984193736297996
+2025,6,Florida State,Miami,22.0,28.0,-6.0,2.5,Florida State,Florida State +2.5,LOSS,True,0.0,True,0.0,1.8531661399437853,0.9091960261987353
+2025,6,Texas A&M,Mississippi State,31.0,9.0,22.0,-17.5,Mississippi State,Mississippi State +17.5,LOSS,True,0.0,True,1.0,25.46330846377522,-1.7749674864557363
+2025,6,Memphis,Tulsa,45.0,7.0,38.0,-21.5,Memphis,Memphis -21.5,WIN,True,1.0,True,0.0,44.55238682768636,3.0408670030508915
+2025,6,California,Duke,21.0,45.0,-24.0,3.5,California,California +3.5,LOSS,True,0.0,True,0.0,5.504997640821681,-0.7102444725021044
+2025,6,Fresno State,Nevada,20.0,17.0,3.0,-13.5,Fresno State,Fresno State -13.5,LOSS,True,0.0,True,0.0,32.93871020640457,8.54081717281786

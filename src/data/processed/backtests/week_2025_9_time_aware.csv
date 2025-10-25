@@ -1,0 +1,9 @@
+season,week,home_team,away_team,home_points,away_points,actual_margin,spread_line,ats_pick_team,ats_pick_description,spread_result,bet_spread,ats_outcome,bet_total,ou_outcome,edge_spread,edge_total
+2025,9,Florida International,Kennesaw State,26.0,45.0,-19.0,2.5,Kennesaw State,Kennesaw State -2.5,WIN,True,1.0,True,1.0,-0.5802257258797185,5.538493095840018
+2025,9,Louisiana Tech,Western Kentucky,27.0,28.0,-1.0,-4.5,Louisiana Tech,Louisiana Tech -4.5,LOSS,True,0.0,True,1.0,13.663369156650589,6.2304318451673595
+2025,9,Delaware,Middle Tennessee,31.0,28.0,3.0,-9.5,Delaware,Delaware -9.5,LOSS,True,0.0,False,,27.983508960660107,0.09864835907387004
+2025,9,New Mexico State,Missouri State,17.0,24.0,-7.0,2.5,New Mexico State,New Mexico State +2.5,LOSS,True,0.0,True,0.0,7.64958825272965,2.3520391260472877
+2025,9,Georgia State,South Alabama,31.0,38.0,-7.0,5.5,South Alabama,South Alabama -5.5,WIN,True,1.0,False,,-2.030677592340324,0.3865013030392461
+2025,9,Charlotte,North Texas,20.0,54.0,-34.0,25.5,North Texas,North Texas -25.5,WIN,True,1.0,True,0.0,-41.4752784567852,-4.048631777363632
+2025,9,Virginia Tech,California,42.0,34.0,8.0,-6.5,California,California +6.5,LOSS,True,0.0,True,1.0,3.534329989200943,4.990009197426559
+2025,9,Nevada,Boise State,3.0,24.0,-21.0,20.5,Boise State,Boise State -20.5,WIN,True,1.0,True,0.0,-31.363093311666052,3.0288954963070296
