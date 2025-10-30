@@ -497,10 +497,11 @@ Recent Performance:
 - O/U Record: {recent_acc['ou_wins']}-{recent_acc['ou_losses']}-{recent_acc['ou_pushes']} ({recent_acc['ou_win_pct']:.1%})
 """
 
-        # Add Week 8 examples (if available)
-        examples_text = _evaluate_week_examples(CURRENT_SEASON, predictions_dir, week=8, max_each=3)
-        if examples_text:
-            accuracy_summary = (accuracy_summary or "") + "\n" + examples_text + "\n"
+        # Add previous week examples (if available and completed)
+        if week_num > 1:
+            examples_text = _evaluate_week_examples(CURRENT_SEASON, predictions_dir, week=week_num - 1, max_each=3)
+            if examples_text:
+                accuracy_summary = (accuracy_summary or "") + "\n" + examples_text + "\n"
 
         # ---------- Build unified picks ----------
         unified = _unified_picks_df(predictions)

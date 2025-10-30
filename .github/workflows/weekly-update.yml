@@ -95,16 +95,21 @@ jobs:
           weekly_update.log
         retention-days: 30
     
-    - name: Commit updated accuracy tracking
+    - name: Commit weekly update results
       if: github.event_name == 'schedule'
       run: |
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
+        git add src/data/raw/*.parquet
+        git add src/data/models/*.pkl
+        git add src/data/processed/predictions/
+        git add src/data/processed/backtests/
+        git add src/data/processed/training_summary.csv
         git add src/data/processed/weekly_accuracy.csv
         if git diff --cached --quiet; then
           echo "No changes to commit"
         else
-          git commit -m "Update weekly accuracy tracking - $(date +'%Y-%m-%d')"
+          git commit -m "Weekly update - $(date +'%Y-%m-%d')"
           git push
         fi
       env:
