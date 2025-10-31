@@ -274,7 +274,11 @@ def _evaluate_week_examples(season: int, predictions_dir: str, week: int = 8, ma
             result = "right" if outcome_val > 0 else ("push" if abs(outcome_val) < 1e-9 else "wrong")
             disp_line = _format_signed(handicap)
             opp = r["away_team"] if side=="home" else r["home_team"]
-            ex_rows.append((result, f"{team} ({disp_line}) vs {opp}: won by {margin:+.0f} vs spread"))
+            # Show game result and whether we covered
+            margin_abs = abs(margin)
+            game_result = f"{team} won by {margin_abs:.0f}" if margin > 0 else f"{team} lost by {margin_abs:.0f}"
+            cover_text = f"covered by {abs(outcome_val):.1f}" if result == "right" else f"didn't cover by {abs(outcome_val):.1f}"
+            ex_rows.append((result, f"{team} ({disp_line}) vs {opp}: {game_result}, {cover_text}"))
 
         if ex_rows:
             rights = [t for res,t in ex_rows if res=="right"]
@@ -300,14 +304,18 @@ def _evaluate_week_examples(season: int, predictions_dir: str, week: int = 8, ma
             line = float(r.get("total_line", 0.0))
             pick = str(r.get("pick_total","")).lower()
             if "over" in pick:
-                result = "right" if total > line else ("push" if abs(total - line) < 1e-9 else "wrong")
+                diff = total - line
+                result = "right" if diff > 0 else ("push" if abs(diff) < 1e-9 else "wrong")
                 tag = "Over"
+                result_text = "hit" if diff > 0 else "missed"
             elif "under" in pick:
-                result = "right" if total < line else ("push" if abs(total - line) < 1e-9 else "wrong")
+                diff = line - total
+                result = "right" if diff > 0 else ("push" if abs(diff) < 1e-9 else "wrong")
                 tag = "Under"
+                result_text = "hit" if diff > 0 else "missed"
             else:
                 continue
-            ex_rows.append((result, f"{tag} {line:.1f} ({r['away_team']} @ {r['home_team']}) final total {total:.1f}"))
+            ex_rows.append((result, f"{tag} {line:.1f} ({r['away_team']} @ {r['home_team']}): {result_text} by {abs(diff):.1f}, final total {total:.1f}"))
 
         if ex_rows:
             rights = [t for res,t in ex_rows if res=="right"]
@@ -835,35 +843,41 @@ def _compute_perf_struct(accuracy_file: str, CURRENT_SEASON: int, week_num: int)
 
 
 
+
 def _evaluate_week_examples_struct(season: int, predictions_dir: str, week: int = 8, max_each: int = 3) -> dict:
     """
-    Build curated "Last Week Picks" sets with logos.
-    Categories for ATS: nailed, barely_won, bad_beats (barely missed), terrible.
-    Categories for O/U: barely_won, bad_beats, terrible; 'nailed' if predicted total is available.
+    Curate "Last Week Picks" as mutually exclusive buckets, add logos, and
+    display ATS results as total win/loss margins (not vs number). Also include
+    predicted margins/totals when available and use them to classify "Nailed".
     """
     import pandas as pd
-    path = os.path.join(predictions_dir, f"predictions_{season}_wk{week}.csv")
-    if not os.path.exists(path):
+
+    csv_path = os.path.join(predictions_dir, f"predictions_{season}_wk{week}.csv")
+    if not os.path.exists(csv_path):
         return {}
 
     try:
-        df = pd.read_csv(path)
+        df = pd.read_csv(csv_path)
     except Exception:
         return {}
 
-    games_candidates = [
-        f"src/data/raw/games_{season}.parquet",
-        f"data/raw/games_{season}.parquet",
-    ]
+    # Predicted margin / total column names (best-effort detection)
+    pred_margin_cols = [c for c in ['pred_home_margin','home_predicted_margin','pred_margin','model_home_margin'] if c in df.columns]
+    pred_margin_col = pred_margin_cols[0] if pred_margin_cols else None
+    pred_total_cols = [c for c in ['pred_total','predicted_total','model_total'] if c in df.columns]
+    pred_total_col = pred_total_cols[0] if pred_total_cols else None
+
+    # Join with final scores
+    games_candidates = [f"src/data/raw/games_{season}.parquet", f"data/raw/games_{season}.parquet"]
     games_path = next((gp for gp in games_candidates if os.path.exists(gp)), None)
     if not games_path:
         return {}
 
     try:
         games = pd.read_parquet(games_path)
-        games_week = games[games['week'] == week].copy()
+        g_week = games[games['week'] == week].copy()
         df = df.merge(
-            games_week[['home_team','away_team','week','home_points','away_points']],
+            g_week[['home_team','away_team','week','home_points','away_points']],
             on=['home_team','away_team','week'], how='left'
         )
     except Exception:
@@ -876,128 +890,170 @@ def _evaluate_week_examples_struct(season: int, predictions_dir: str, week: int 
     if df.empty:
         return {}
 
-    # Determine if we have a predicted margin for "nailed"
-    pred_cols = [c for c in ['pred_home_margin','home_predicted_margin','pred_margin','model_home_margin'] if c in df.columns]
-    pred_margin_col = pred_cols[0] if pred_cols else None
-
     df['has_ats'] = df.get('pick_spread','no bet').astype(str).str.lower().ne('no bet')
     df['has_ou']  = df.get('pick_total','no bet').astype(str).str.lower().ne('no bet')
 
     logo_df = _load_logo_map()
 
-    # Output buckets
     out = {
         'ats_nailed': [], 'ats_barely_won': [], 'ats_bad_beats': [], 'ats_terrible': [],
         'ou_nailed': [],  'ou_barely_won': [],  'ou_bad_beats': [],  'ou_terrible': []
     }
 
-    # Tunable thresholds
-    BARELY = 1.5    # within 1.5 points of the number
-    TERRIBLE = 10.0 # missed by 10+ vs number counts as terrible
-    NAIL_DELTA = 1.0 # actual margin close to predicted margin
+    # thresholds (tweak if desired)
+    BARELY = 1.5       # within 1.5 of the number
+    TERRIBLE = 10.0    # missed by 10+ vs number
+    NAIL_DELTA = 1.0   # actual close to predicted
 
-    # ============== ATS CURATION ==============
+    def logo_for(team: str):
+        if logo_df is None:
+            return None
+        try:
+            sel = logo_df[logo_df['team'].eq(team)]
+            return sel['logo_url'].iloc[0] if not sel.empty else None
+        except Exception:
+            return None
+
+    # Avoid duplicates across categories
+    seen_ats = set()
+    seen_ou = set()
+
+    # ----------------- ATS -----------------
     if df['has_ats'].any() and {'spread_line','pick_spread','home_team','away_team'}.issubset(df.columns):
         ats = df[df['has_ats']].copy()
         for _, r in ats.iterrows():
             side, team = _infer_pick_team_from_text(str(r['pick_spread']), str(r['home_team']), str(r['away_team']))
             if not side:
                 continue
+            home, away = r['home_team'], r['away_team']
+            key = f"{away}@{home}"
+            if key in seen_ats:
+                continue
+
             hp, ap = float(r['home_points']), float(r['away_points'])
-            actual_home_margin = hp - ap
-            # Number is from home perspective
+            actual_home_margin = hp - ap                       # home minus away
+            picked_margin = actual_home_margin if side=='home' else -actual_home_margin  # from picked team's perspective
+            game_won = picked_margin > 0  # whether picked team won the GAME
+
+            # Spread from home perspective; apply from picked side perspective to determine closeness vs number
             line_home = float(r.get('spread_line', 0.0))
-            # Handicap applied to our picked side
-            handicap  = line_home if side == 'home' else -line_home
-            # Outcome vs the number from our pick's perspective
-            outcome_val = (actual_home_margin if side == 'home' else -actual_home_margin) + handicap
+            handicap  = line_home if side=='home' else -line_home
+            vs_number = picked_margin + handicap if side=='away' else (actual_home_margin + handicap if side=='home' else picked_margin + handicap)
+            bet_won = vs_number > 0  # whether we won the BET (covered the spread)
 
-            opp    = r['away_team'] if side == 'home' else r['home_team']
-            detail = f'{team} ({_format_signed(handicap)}) vs {opp}: {"covered" if outcome_val>0 else ("push" if abs(outcome_val)<1e-9 else "did not cover")} by {outcome_val:+.1f}'
+            opp = away if side == 'home' else home
 
-            # logos
-            tl = ol = None
-            if isinstance(logo_df, pd.DataFrame):
-                sel_t = logo_df[logo_df['team'].eq(team)]
-                sel_o = logo_df[logo_df['team'].eq(opp)]
-                tl = sel_t['logo_url'].iloc[0] if not sel_t.empty else None
-                ol = sel_o['logo_url'].iloc[0] if not sel_o.empty else None
+            # Build detail: show actual result AND whether we covered
+            margin_abs = abs(picked_margin)
+            pred_str = ""
+            nailed = False
+            if pred_margin_col is not None:
+                try:
+                    pred_home_margin = float(r[pred_margin_col])
+                    pred_pick_margin = pred_home_margin if side=='home' else -pred_home_margin
+                    # Show prediction as margin with sign
+                    pred_str = f" (pred: {team} by {abs(pred_pick_margin):.1f})" if pred_pick_margin > 0 else f" (pred: {opp} by {abs(pred_pick_margin):.1f})"
 
+                    if bet_won and abs(picked_margin - pred_pick_margin) <= NAIL_DELTA:
+                        nailed = True
+                except Exception:
+                    pass
+
+            # Show game result + whether pick covered
+            game_result = f"{team} won by {margin_abs:.0f}" if game_won else f"{team} lost by {margin_abs:.0f}"
+
+            # vs_number tells us how much we won/lost the bet by
+            if bet_won:
+                cover_text = f"covered by {abs(vs_number):.1f}"
+            else:
+                cover_text = f"didn't cover by {abs(vs_number):.1f}"
+
+            detail = f'{team} ({_format_signed(handicap)}) vs {opp}: {game_result}, {cover_text}{pred_str}'
+
+            tl, ol = logo_for(team), logo_for(opp)
             rec = {"team": team, "opp": opp, "detail": detail, "team_logo": tl, "opp_logo": ol}
 
-            # Categorize
-            if outcome_val > 0 and outcome_val <= BARELY:
-                out['ats_barely_won'].append(rec)
-            elif outcome_val < 0 and abs(outcome_val) <= BARELY:
-                out['ats_bad_beats'].append(rec)
-            elif outcome_val <= -TERRIBLE:
-                out['ats_terrible'].append(rec)
+            # Mutually-exclusive categorization (priority order)
+            category = None
+            if nailed:
+                category = 'ats_nailed'
+            elif bet_won and abs(vs_number) <= BARELY:
+                category = 'ats_barely_won'
+            elif (not bet_won) and abs(vs_number) <= BARELY:
+                category = 'ats_bad_beats'
+            elif (not bet_won) and abs(vs_number) >= TERRIBLE:
+                category = 'ats_terrible'
 
-            # Nailed: if we have predicted margin, and we picked the correct side AND actual margin ~ predicted
-            if pred_margin_col is not None:
-                pred_home_margin = float(r[pred_margin_col])
-                picked_correct = outcome_val > 0
-                if picked_correct and abs(actual_home_margin - pred_home_margin) <= NAIL_DELTA:
-                    out['ats_nailed'].append(rec)
+            if category:
+                out[category].append(rec)
+                seen_ats.add(key)
 
-        # trim each bucket
+        # Trim
         for k in ['ats_nailed','ats_barely_won','ats_bad_beats','ats_terrible']:
             if len(out[k]) > max_each:
                 out[k] = out[k][:max_each]
 
-    # ============== O/U CURATION ==============
+    # ----------------- O/U -----------------
     if df['has_ou'].any() and {'total_line','pick_total'}.issubset(df.columns):
         ou = df[df['has_ou']].copy()
         for _, r in ou.iterrows():
+            home, away = r['home_team'], r['away_team']
+            key = f"{away}@{home}"
+            if key in seen_ou:
+                continue
+
             hp, ap = float(r['home_points']), float(r['away_points'])
             total  = hp + ap
             line   = float(r.get('total_line', 0.0))
             pick_l = str(r.get('pick_total','')).lower()
+
             if 'over' in pick_l:
                 diff = total - line
-                outcome_correct = diff > 0
+                correct = diff > 0
                 label = 'Over'
             elif 'under' in pick_l:
                 diff = line - total
-                outcome_correct = diff > 0
+                correct = diff > 0
                 label = 'Under'
             else:
                 continue
 
-            home, away = r['home_team'], r['away_team']
-            detail = f'{label} {line:.1f} ({away} @ {home}): {"hit" if outcome_correct else "missed"} by {diff:+.1f} (final {total:.1f})'
-
-            hl = al = None
-            if isinstance(logo_df, pd.DataFrame):
-                sel_h = logo_df[logo_df['team'].eq(home)]
-                sel_a = logo_df[logo_df['team'].eq(away)]
-                hl = sel_h['logo_url'].iloc[0] if not sel_h.empty else None
-                al = sel_a['logo_url'].iloc[0] if not sel_a.empty else None
-
-            rec = {"team": home, "opp": away, "detail": detail, "team_logo": hl, "opp_logo": al}
-
-            if outcome_correct and 0 < abs(diff) <= BARELY:
-                out['ou_barely_won'].append(rec)
-            elif (not outcome_correct) and abs(diff) <= BARELY:
-                out['ou_bad_beats'].append(rec)
-            elif (not outcome_correct) and abs(diff) >= TERRIBLE:
-                out['ou_terrible'].append(rec)
-
-            # O/U "nailed" only if we have a predicted total column
-            pred_total_cols = [c for c in ['pred_total','predicted_total','model_total'] if c in ou.columns]
-            if pred_total_cols:
+            pred_close = False
+            pred_note = ""
+            if pred_total_col is not None:
                 try:
-                    pred_total = float(r[pred_total_cols[0]])
-                    if outcome_correct and abs(total - pred_total) <= NAIL_DELTA:
-                        out['ou_nailed'].append(rec)
+                    pred_total = float(r[pred_total_col])
+                    pred_note = f" (predicted total {pred_total:.1f})"
+                    if correct and abs(total - pred_total) <= NAIL_DELTA:
+                        pred_close = True
                 except Exception:
                     pass
+
+            tl, ol = logo_for(home), logo_for(away)
+            result_text = "hit" if correct else "missed"
+            detail = f'{label} {line:.1f} ({away} @ {home}): {result_text} by {abs(diff):.1f}, final total {total:.1f}{pred_note}'
+            rec = {"team": home, "opp": away, "detail": detail, "team_logo": tl, "opp_logo": ol}
+
+            category = None
+            if pred_close:
+                category = 'ou_nailed'
+            elif correct and abs(diff) <= BARELY:
+                category = 'ou_barely_won'
+            elif (not correct) and abs(diff) <= BARELY:
+                category = 'ou_bad_beats'
+            elif (not correct) and abs(diff) >= TERRIBLE:
+                category = 'ou_terrible'
+
+            if category:
+                out[category].append(rec)
+                seen_ou.add(key)
 
         for k in ['ou_nailed','ou_barely_won','ou_bad_beats','ou_terrible']:
             if len(out[k]) > max_each:
                 out[k] = out[k][:max_each]
 
     return out
+
 
 def _perf_overview_html(perf: dict, examples: dict | None) -> str:
     def row_html(title: str, ats: str, ou: str) -> str:
