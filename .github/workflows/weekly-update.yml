@@ -1,9 +1,9 @@
 name: Weekly NCAAF Model Update
 
 on:
-  schedule:
-    # Run every Friday at 8:00 PM UTC (3:00 PM Central Time)
-    - cron: '0 20 * * 5'
+  # schedule:
+  #   # Run every Friday at 8:00 PM UTC (3:00 PM Central Time)
+  #   - cron: '0 20 * * 5'
   workflow_dispatch:
     inputs:
       week:
