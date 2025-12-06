@@ -128,23 +128,27 @@ def get_current_week():
         games['start_date'] = pd.to_datetime(games['start_date'])
         now = pd.Timestamp.now(tz='UTC')
 
-        # First, check if any week is "in progress" (some games played, some not)
-        for week in sorted(games['week'].unique()):
-            week_games = games[games['week'] == week]
+        # Prioritize regular season, then postseason
+        regular_season = games[games['season_type'] == 'regular']
+        postseason = games[games['season_type'] == 'postseason']
+
+        # First, check if any REGULAR SEASON week is "in progress" (some games played, some not)
+        for week in sorted(regular_season['week'].unique()):
+            week_games = regular_season[regular_season['week'] == week]
             completed = len(week_games[pd.notna(week_games['home_points'])])
             total = len(week_games)
 
             # If this week has started but isn't finished, this is the current week
             if 0 < completed < total:
-                logger.info(f"Week {week} is in progress ({completed}/{total} games completed)")
+                logger.info(f"Week {week} is in progress ({completed}/{total} regular season games completed)")
                 return int(week)
 
-        # No week in progress, find the week with the earliest upcoming games
+        # No regular season week in progress, find the week with the earliest upcoming REGULAR SEASON games
         earliest_week = None
         earliest_time = None
 
-        for week in sorted(games['week'].unique()):
-            week_games = games[games['week'] == week]
+        for week in sorted(regular_season['week'].unique()):
+            week_games = regular_season[regular_season['week'] == week]
             upcoming = week_games[
                 pd.isna(week_games['home_points']) &
                 (week_games['start_date'] > now)
@@ -157,7 +161,35 @@ def get_current_week():
                     earliest_week = int(week)
 
         if earliest_week is not None:
-            logger.info(f"Week {earliest_week} has earliest upcoming games (starts {earliest_time})")
+            logger.info(f"Week {earliest_week} has earliest upcoming regular season games (starts {earliest_time})")
+            return earliest_week
+
+        # All regular season done, check postseason weeks in progress
+        for week in sorted(postseason['week'].unique()):
+            week_games = postseason[postseason['week'] == week]
+            completed = len(week_games[pd.notna(week_games['home_points'])])
+            total = len(week_games)
+
+            if 0 < completed < total:
+                logger.info(f"Week {week} postseason is in progress ({completed}/{total} games completed)")
+                return int(week)
+
+        # Check for upcoming postseason games
+        for week in sorted(postseason['week'].unique()):
+            week_games = postseason[postseason['week'] == week]
+            upcoming = week_games[
+                pd.isna(week_games['home_points']) &
+                (week_games['start_date'] > now)
+            ]
+
+            if len(upcoming) > 0:
+                week_earliest = upcoming['start_date'].min()
+                if earliest_time is None or week_earliest < earliest_time:
+                    earliest_time = week_earliest
+                    earliest_week = int(week)
+
+        if earliest_week is not None:
+            logger.info(f"Week {earliest_week} has earliest upcoming postseason games (starts {earliest_time})")
             return earliest_week
 
         # Fallback: find last completed week + 1
