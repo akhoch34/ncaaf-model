@@ -385,20 +385,31 @@ def _block_header(date_str: str, time_range: str) -> str:
     return f"<h3 style=\"color:#cbd5e1;font-size:16px;margin:12px 0 8px 0;border-left:4px solid #60a5fa;padding-left:10px;\">{date_str} • {time_range}</h3>"
 
 
-def _card_open() -> str:
-    return "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" bgcolor=\"#111827\" style=\"background:#111827;border:1px solid #1f2937;border-left:4px solid #60a5fa;margin:12px 0;border-radius:12px;box-shadow:0 2px 10px rgba(0,0,0,.25);\"><tr><td style=\"padding:14px 14px 12px 14px;color:#e5e7eb;\">"
+def _card_open(is_high_value: bool = False) -> str:
+    if is_high_value:
+        # High-value games get gold/amber border and glow
+        return "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" bgcolor=\"#1a1108\" style=\"background:linear-gradient(135deg,#1a1108,#111827);border:2px solid #f59e0b;border-left:6px solid #fbbf24;margin:12px 0;border-radius:12px;box-shadow:0 4px 20px rgba(251,191,36,.35),0 0 12px rgba(251,191,36,.25);\"><tr><td style=\"padding:14px 14px 12px 14px;color:#e5e7eb;\">"
+    else:
+        # Standard card
+        return "<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" bgcolor=\"#111827\" style=\"background:#111827;border:1px solid #1f2937;border-left:4px solid #60a5fa;margin:12px 0;border-radius:12px;box-shadow:0 2px 10px rgba(0,0,0,.25);\"><tr><td style=\"padding:14px 14px 12px 14px;color:#e5e7eb;\">"
 
 
 def _card_close() -> str:
     return "</td></tr></table>"
 
 
-def _matchup_row(matchup: str, kickoff: str, home_logo: Optional[str], away_logo: Optional[str]) -> str:
+def _matchup_row(matchup: str, kickoff: str, home_logo: Optional[str], away_logo: Optional[str], is_high_value: bool = False) -> str:
     def _logo(url: Optional[str]) -> str:
         if not isinstance(url, str) or not url.startswith("http"):
             return ""
         return f'<img src="{url}" width="20" height="20" style="vertical-align:middle;border-radius:3px;margin-right:6px;" alt="logo" />'
     away, home = matchup.split(" @ ")
+
+    # Add high-value badge
+    high_value_badge = ""
+    if is_high_value:
+        high_value_badge = '<span style="display:inline-block;background:linear-gradient(135deg,#78350f,#451a03);color:#fbbf24;border:1px solid #f59e0b;font-size:11px;font-weight:900;padding:3px 8px;border-radius:999px;margin-left:8px;box-shadow:0 2px 8px rgba(251,191,36,.4);">★ HIGH VALUE</span>'
+
     return f"""
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;margin-bottom:6px;">
       <tr>
@@ -406,6 +417,7 @@ def _matchup_row(matchup: str, kickoff: str, home_logo: Optional[str], away_logo
           { _logo(away_logo) }{away}
           <span style="color:#9ca3af;font-weight:600;"> @ </span>
           { _logo(home_logo) }{home}
+          {high_value_badge}
         </td>
         <td align="right" style="color:#cbd5e1;font-size:13px;">{_pill(kickoff)}</td>
       </tr>
@@ -590,8 +602,8 @@ Recent Performance:
         unified_et["ou_edge_abs"]  = unified_et["ou_edge_abs"].fillna(0.0)
         unified_et["primary_edge"] = unified_et["ats_edge_abs"]
 
-        # ---------- Featured games ----------
-        featured = _featured_games(unified_et, max_items=8)
+        # Mark high-value games for highlighting (only ATS edge >= 7.0)
+        unified_et["is_high_value"] = unified_et["ats_edge_abs"] >= 7.0
 
         subject = f"NCAAF Week {week_num} Picks - {CURRENT_SEASON} Season"
 
@@ -604,32 +616,11 @@ NCAAF WEEKLY PICKS - Week {week_num} ({CURRENT_SEASON} Season)
 Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC
 Sportsbook: {book}
 Minimum Edge: 0.5 points
+★ = High-value pick (ATS Edge ≥ 7.0 points)
 
 {accuracy_summary}
 
-Featured Games (Saturday-first)
-{('='*65)}
-"""
-
-        if not featured.empty:
-            for i, (_, g) in enumerate(featured.iterrows(), 1):
-                game_time = pd.to_datetime(g['start_date']).strftime('%a %m/%d %I:%M%p ET')
-                ats_label, ats_pred_label, _ats_edge = _ats_strings(g)
-                if bool(g["has_ou"]):
-                    ou_label = f"{g['pick_total']} {g['total_line']} | PredTot: {float(g['pred_total']):.1f} | Edge {float(g['ou_edge_abs']):.1f}"
-                else:
-                    ou_label = "—"
-
-                body += f"""
-{i:2d}. {g['away_team']} @ {g['home_team']} • {game_time}
-    ATS: {ats_label} | {ats_pred_label} | Edge {float(g['ats_edge_abs']):.1f}
-    O/U: {ou_label}
-"""
-
-        body += f"""
-{('='*65)}
-
-WEEKLY PICKS (ALL) — Sorted by ATS Edge
+ALL PICKS — Sorted by Date & Edge
 {('='*65)}
 """
 
@@ -641,8 +632,11 @@ WEEKLY PICKS (ALL) — Sorted by ATS Edge
             else:
                 ou_label = "—"
 
+            # Add star for high-value picks
+            star = "★ " if bool(g.get("is_high_value", False)) else "  "
+
             body += f"""
-{i:2d}. {g['away_team']} @ {g['home_team']} • {game_time}
+{star}{i:2d}. {g['away_team']} @ {g['home_team']} • {game_time}
     ATS: {ats_label} | {ats_pred_label} | Edge {float(g['ats_edge_abs']):.1f}
     O/U: {ou_label}
 """
@@ -706,39 +700,16 @@ Generated by NCAAF Predictor
             perf_struct = _compute_perf_struct(accuracy_file, CURRENT_SEASON, week_num if isinstance(week_num, int) else None)
             html_parts.append(_perf_overview_html(perf_struct, examples_dict))
 
-
-        # Featured
-        if not featured.empty:
-            html_parts.append(_section_header("Featured Games", len(featured)))
-            for _, g in featured.iterrows():
-                matchup = f"{g['away_team']} @ {g['home_team']}"
-                kickoff = g["game_time"]
-
-                ats_label, ats_pred_label, ats_edge = _ats_strings(g)
-
-                if bool(g["has_ou"]):
-                    ou_label = f"{g['pick_total']} {g['total_line']}"
-                    ou_pred = f"{float(g['pred_total']):.1f}"
-                    ou_edge = float(g["ou_edge_abs"])
-                else:
-                    ou_label, ou_pred, ou_edge = "—", "—", 0.0
-
-                html_parts.append(_card_open())
-                html_parts.append(_matchup_row(matchup, kickoff, g.get("home_logo_url"), g.get("away_logo_url")))
-                html_parts.append(_two_col("ATS Pick", f"{ats_label}<div style='font-size:12px;color:#9ca3af;margin-top:2px;'>{ats_pred_label}</div>",
-                                           "O/U Pick", f"{ou_label}<div style='font-size:12px;color:#9ca3af;margin-top:2px;'>Pred Total: {ou_pred}</div>",
-                                           hl_left=ats_edge>=2.0, hl_right=ou_edge>=2.0))
-                html_parts.append(_edge_badges(ats_edge, ou_edge))
-                html_parts.append(_card_close())
-
-        # Weekly picks
-        html_parts.append(_section_header("Weekly Picks (All)", len(unified_et)))
+        # All picks (high-value games are highlighted with special styling)
+        html_parts.append(_section_header("All Picks", len(unified_et)))
+        html_parts.append('<div style="color:#9ca3af;font-size:13px;margin:-8px 0 12px 0;padding-left:4px;">★ = High-value pick (ATS Edge ≥ 7.0 points)</div>')
         for d_str, time_range, block in window_group(unified_et, minutes=60):
             block = block.sort_values(["start_date_et", "primary_edge"], ascending=[True, False])
             html_parts.append(_block_header(d_str, time_range))
             for _, g in block.iterrows():
                 matchup = f"{g['away_team']} @ {g['home_team']}"
                 kickoff = g["game_time"]
+                is_high_value = bool(g.get("is_high_value", False))
 
                 ats_label, ats_pred_label, ats_edge = _ats_strings(g)
 
@@ -749,8 +720,8 @@ Generated by NCAAF Predictor
                 else:
                     ou_label, ou_pred, ou_edge = "—", "—", 0.0
 
-                html_parts.append(_card_open())
-                html_parts.append(_matchup_row(matchup, kickoff, g.get("home_logo_url"), g.get("away_logo_url")))
+                html_parts.append(_card_open(is_high_value=is_high_value))
+                html_parts.append(_matchup_row(matchup, kickoff, g.get("home_logo_url"), g.get("away_logo_url"), is_high_value=is_high_value))
                 html_parts.append(_two_col("ATS Pick", f"{ats_label}<div style='font-size:12px;color:#9ca3af;margin-top:2px;'>{ats_pred_label}</div>",
                                            "O/U Pick", f"{ou_label}<div style='font-size:12px;color:#9ca3af;margin-top:2px;'>Pred: {ou_pred}</div>",
                                            hl_left=ats_edge>=2.0, hl_right=ou_edge>=2.0))
