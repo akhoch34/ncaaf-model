@@ -28,7 +28,22 @@ def train(seasons: List[int] = typer.Argument(..., help="Seasons to train on, e.
 
 @app.command()
 def predict(season: int = typer.Option(...), week: Optional[str] = typer.Option("auto"), book: str = typer.Option("consensus"), min_edge: float = typer.Option(0.5)):
-    out = predict_week(season=season, week=week, book=book, min_edge=min_edge)
+    """
+    Generate predictions for upcoming games.
+
+    Args:
+        season: Season year (e.g., 2025)
+        week: Week number (e.g., 1-16), "postseason" for bowl games, or "auto" to auto-detect
+        book: Sportsbook name for lines (e.g., "DraftKings", "ESPN Bet")
+        min_edge: Minimum edge required to make a pick (default: 0.5)
+    """
+    # Convert week to int if it's a number, otherwise keep as string
+    try:
+        week_val = int(week) if week and week.lower() != "auto" and week.lower() != "postseason" else week
+    except ValueError:
+        week_val = week
+
+    out = predict_week(season=season, week=week_val, book=book, min_edge=min_edge)
     typer.echo(out.head().to_string(index=False))
 
 @app.command()
@@ -37,10 +52,17 @@ def backtest(seasons: List[int] = typer.Argument(...), book: str = typer.Option(
     typer.echo(summ.to_string(index=False))
 
 @app.command()
-def update_accuracy(season: int = typer.Option(...), week: int = typer.Option(...), book: str = typer.Option("DraftKings")):
-    """Update weekly accuracy tracking for completed games"""
-    result = update_weekly_accuracy(season, week, book)
-    typer.echo(f"Updated accuracy for {season} week {week}:")
+def update_accuracy(season: int = typer.Option(...), week: str = typer.Option(...), book: str = typer.Option("DraftKings")):
+    """Update weekly accuracy tracking for completed games. Week can be a number (1-16) or "postseason"."""
+    # Convert week to int if it's a number, otherwise keep as string
+    try:
+        week_val = int(week) if week.lower() != "postseason" else week
+    except ValueError:
+        week_val = week
+
+    result = update_weekly_accuracy(season, week_val, book)
+    week_display = week if isinstance(week_val, str) else week_val
+    typer.echo(f"Updated accuracy for {season} {week_display}:")
     typer.echo(f"ATS: {result['ats_wins']}-{result['ats_losses']}-{result['ats_pushes']} ({result['ats_win_pct']:.1%})")
     typer.echo(f"O/U: {result['ou_wins']}-{result['ou_losses']}-{result['ou_pushes']} ({result['ou_win_pct']:.1%})")
 

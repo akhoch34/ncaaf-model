@@ -110,12 +110,12 @@ def retrain_models():
 
 def get_current_week():
     """
-    Determine the current week for predictions based on game schedule.
+    Determine the current week/date for predictions based on game schedule.
 
     Logic:
-    1. If a week has games in progress (started but not all completed), that's the current week
-    2. Otherwise, return the week with the earliest upcoming games
-    3. This handles Friday afternoon runs where we want predictions for Saturday's games
+    1. For regular season: Return week number (1-16)
+    2. For postseason: Return special string "postseason" to trigger date-based predictions
+    3. Checks if games are in progress or finds earliest upcoming games
     """
     try:
         games_file = f"{SRC_DIR}/data/raw/games_{CURRENT_SEASON}.parquet"
@@ -164,38 +164,33 @@ def get_current_week():
             logger.info(f"Week {earliest_week} has earliest upcoming regular season games (starts {earliest_time})")
             return earliest_week
 
-        # All regular season done, check postseason weeks in progress
-        for week in sorted(postseason['week'].unique()):
-            week_games = postseason[postseason['week'] == week]
-            completed = len(week_games[pd.notna(week_games['home_points'])])
-            total = len(week_games)
-
-            if 0 < completed < total:
-                logger.info(f"Week {week} postseason is in progress ({completed}/{total} games completed)")
-                return int(week)
-
-        # Check for upcoming postseason games
-        for week in sorted(postseason['week'].unique()):
-            week_games = postseason[postseason['week'] == week]
-            upcoming = week_games[
-                pd.isna(week_games['home_points']) &
-                (week_games['start_date'] > now)
+        # All regular season done, check for postseason games
+        # For postseason, we use date-based predictions instead of week numbers
+        if not postseason.empty:
+            upcoming_postseason = postseason[
+                pd.isna(postseason['home_points']) &
+                (postseason['start_date'] > now)
             ]
 
-            if len(upcoming) > 0:
-                week_earliest = upcoming['start_date'].min()
-                if earliest_time is None or week_earliest < earliest_time:
-                    earliest_time = week_earliest
-                    earliest_week = int(week)
+            if not upcoming_postseason.empty:
+                logger.info(f"Postseason in progress - using date-based predictions")
+                return "postseason"
 
-        if earliest_week is not None:
-            logger.info(f"Week {earliest_week} has earliest upcoming postseason games (starts {earliest_time})")
-            return earliest_week
+            # Check if there are any postseason games in progress
+            in_progress = postseason[
+                pd.notna(postseason['home_points']) &
+                (postseason['start_date'] <= now)
+            ]
+
+            if not in_progress.empty:
+                logger.info(f"Postseason games still being played - using date-based predictions")
+                return "postseason"
 
         # Fallback: find last completed week + 1
-        completed_games = games[pd.notna(games['home_points'])]
-        if not completed_games.empty:
-            return int(completed_games['week'].max()) + 1
+        reg_completed = regular_season[pd.notna(regular_season['home_points'])]
+        if not reg_completed.empty:
+            return int(reg_completed['week'].max()) + 1
+
         return 1
 
     except Exception as e:
@@ -205,16 +200,25 @@ def get_current_week():
 
 def update_accuracy(week=None, book="DraftKings"):
     """
-    Update accuracy tracking for the previous completed week.
+    Update accuracy tracking for completed games.
 
-    This will update accuracy for week-1, but only if that week is fully completed
-    (all games have final scores).
+    For regular season: Updates accuracy for week-1, but only if that week is fully completed.
+    For postseason: Updates accuracy for all completed postseason games in the prediction file.
     """
     if week is None:
         week = get_current_week()
         if week is None:
             logger.info("Could not determine current week, skipping accuracy update")
             return True
+
+    # Handle postseason separately
+    if isinstance(week, str) and week.lower() == 'postseason':
+        logger.info("Updating postseason accuracy for completed games...")
+        python_args = ["-m", "cfb_predictor.cli", "update-accuracy",
+                       "--season", str(CURRENT_SEASON),
+                       "--week", "postseason",
+                       "--book", book]
+        return run_python_command(python_args, cwd=SRC_DIR)
 
     if week <= 1:
         logger.info("Skipping accuracy update - week <= 1, no previous week to evaluate")
@@ -251,8 +255,17 @@ def update_accuracy(week=None, book="DraftKings"):
 
 def generate_predictions(week=None, book="DraftKings", min_edge=0.5):
     """Generate predictions for upcoming games"""
-    logger.info(f"Generating predictions for week {week or 'auto'} of {CURRENT_SEASON} season...")
-    week_arg = str(week) if week else "auto"
+    week_display = week if week else 'auto'
+    logger.info(f"Generating predictions for {week_display} of {CURRENT_SEASON} season...")
+
+    # Convert week to string for CLI - handles both int and "postseason"
+    if week is None:
+        week_arg = "auto"
+    elif isinstance(week, str):
+        week_arg = week
+    else:
+        week_arg = str(week)
+
     python_args = ["-m", "cfb_predictor.cli", "predict",
                    "--season", str(CURRENT_SEASON),
                    "--week", week_arg,
@@ -277,7 +290,7 @@ def send_email_picks(week=None, book="DraftKings"):
 def main():
     parser = argparse.ArgumentParser(description="Weekly NCAAF model update and prediction")
     parser.add_argument("--week", type=int, help="Specific week to predict (default: auto)")
-    parser.add_argument("--book", default="ESPN Bet", help="Sportsbook for lines (default: ESPN Bet)")
+    parser.add_argument("--book", default="DraftKings", help="Sportsbook for lines (default: ESPN Bet)")
     parser.add_argument("--min-edge", type=float, default=0.5, help="Minimum edge for betting (default: 0.5)")
     parser.add_argument("--skip-fetch", action="store_true", help="Skip fetching latest data")
     parser.add_argument("--skip-train", action="store_true", help="Skip retraining models")

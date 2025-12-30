@@ -24,13 +24,38 @@ def _load_lines(season: int) -> pd.DataFrame:
     p = os.path.join(RAW_DIR, f"lines_{season}.parquet")
     return pd.read_parquet(p) if os.path.exists(p) else pd.DataFrame()
 
-def _auto_week(df: pd.DataFrame) -> int:
-    # pick the next week with any game missing scores
-    played = df[pd.notna(df['home_points']) & pd.notna(df['away_points'])]
-    if played.empty:
-        return int(df['week'].min())
-    last_week = int(played['week'].max())
-    return last_week + 1
+def _auto_week(df: pd.DataFrame):
+    """
+    Determine the next week to predict based on game completion status.
+    Returns week number for regular season, or "postseason" for bowl games.
+    """
+    # Separate regular season and postseason
+    regular_season = df[df['season_type'] == 'regular']
+    postseason = df[df['season_type'] == 'postseason']
+
+    # Check regular season first
+    reg_played = regular_season[pd.notna(regular_season['home_points']) & pd.notna(regular_season['away_points'])]
+    if not reg_played.empty:
+        last_reg_week = int(reg_played['week'].max())
+        # Check if there are upcoming regular season games after this week
+        upcoming_reg = regular_season[(regular_season['week'] > last_reg_week) &
+                                      pd.isna(regular_season['home_points'])]
+        if not upcoming_reg.empty:
+            return last_reg_week + 1
+
+    # Regular season is done, check for postseason
+    if not postseason.empty:
+        now = pd.Timestamp.now(tz='UTC')
+        postseason['start_date'] = pd.to_datetime(postseason['start_date'])
+        upcoming_postseason = postseason[
+            pd.isna(postseason['home_points']) &
+            (postseason['start_date'] > now)
+        ]
+        if not upcoming_postseason.empty:
+            return "postseason"
+
+    # Fallback to first week
+    return 1
 
 def predict(season: int, week: Optional[int] = None, book: str = 'consensus', min_edge: float = 0.5) -> pd.DataFrame:
     # Load historical seasons to build continuous ELO ratings
@@ -65,9 +90,27 @@ def predict(season: int, week: Optional[int] = None, book: str = 'consensus', mi
     if week is None or (isinstance(week, str) and week.lower() == 'auto'):
         wk = _auto_week(current_games)
     else:
-        wk = int(week)
+        wk = week if isinstance(week, str) else int(week)
 
-    wk_df = feats[feats['week'] == wk].copy()
+    # Handle postseason vs regular season predictions
+    if isinstance(wk, str) and wk.lower() == 'postseason':
+        # For postseason, predict all postseason games (both completed and upcoming)
+        # This allows for retroactive analysis of completed games
+        feats['start_date'] = pd.to_datetime(feats['start_date'])
+        wk_df = feats[feats['season_type'] == 'postseason'].copy()
+
+        # Count upcoming vs completed
+        now = pd.Timestamp.now(tz='UTC')
+        upcoming = wk_df[wk_df['start_date'] > now]
+        completed = wk_df[wk_df['start_date'] <= now]
+
+        print(f"Predicting all postseason games: {len(completed)} completed, {len(upcoming)} upcoming ({len(wk_df)} total)")
+        output_suffix = 'postseason'
+    else:
+        # Regular season week-based prediction
+        wk_df = feats[(feats['season_type'] == 'regular') & (feats['week'] == wk)].copy()
+        print(f"Predicting regular season week {wk} ({len(wk_df)} games)")
+        output_suffix = f'wk{wk}'
 
     win_m = _load_model('win')
     margin_m = _load_model('margin')
@@ -147,6 +190,6 @@ def predict(season: int, week: Optional[int] = None, book: str = 'consensus', mi
     out_cols = ['season','week','start_date','home_team','away_team','is_neutral','win_prob_home','pred_margin','pred_line','spread_line','edge_spread','pick_spread','pred_total','total_line','edge_total','pick_total']
     out = wk_df[out_cols].sort_values('start_date')
     os.makedirs(os.path.join(PROCESSED_DIR, 'predictions'), exist_ok=True)
-    out_path = os.path.join(PROCESSED_DIR, 'predictions', f'predictions_{season}_wk{wk}.csv')
+    out_path = os.path.join(PROCESSED_DIR, 'predictions', f'predictions_{season}_{output_suffix}.csv')
     out.to_csv(out_path, index=False)
     return out
