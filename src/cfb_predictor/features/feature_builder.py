@@ -82,9 +82,75 @@ def build_features(games: pd.DataFrame, cutoff_date: pd.Timestamp = None) -> pd.
     away_roll = add_rolling('away','away_team','away_points','home_points')
     df = pd.concat([df, home_roll, away_roll], axis=1)
 
+    # ========== NEW TOTAL-FOCUSED FEATURES ==========
+
+    # 1. CONFERENCE FEATURES
+    # Map conferences to scoring levels (based on historical data)
+    conference_scoring_map = {
+        'Big 12': 1.15,      # High-scoring conference
+        'SEC': 1.0,          # Baseline
+        'ACC': 0.95,
+        'Big Ten': 0.90,     # Traditionally lower-scoring
+        'Pac-12': 1.05,
+        'American Athletic': 1.05,
+        'Mountain West': 1.00,
+        'Conference USA': 1.00,
+        'Sun Belt': 1.00,
+        'Mid-American': 0.95,
+        'FBS Independents': 1.00,
+    }
+    df['home_conf_scoring_factor'] = df['home_conference'].map(conference_scoring_map).fillna(1.0)
+    df['away_conf_scoring_factor'] = df['away_conference'].map(conference_scoring_map).fillna(1.0)
+
+    # Conference matchup type (conference game = lower scoring due to familiarity)
+    df['is_conference_game'] = (df['home_conference'] == df['away_conference']).astype(int)
+
+    # 2. COMBINED TEAM TOTALS
+    # Expected combined scoring based on recent performance
+    df['expected_combined_total'] = df['home_pf_roll3'] + df['away_pf_roll3']
+
+    # Combined defensive strength (points allowed)
+    df['expected_combined_defense'] = df['home_pa_roll3'] + df['away_pa_roll3']
+
+    # Offensive vs Defensive matchup
+    # When good offense meets bad defense, expect higher totals
+    df['home_off_vs_away_def'] = df['home_pf_roll3'] - df['away_pa_roll3']
+    df['away_off_vs_home_def'] = df['away_pf_roll3'] - df['home_pa_roll3']
+
+    # 3. GAME TOTAL HISTORY
+    # Track what the recent game totals have been for each team
+    def add_total_history(prefix: str, team_col: str):
+        """Calculate rolling average of game totals (not just points scored)"""
+        tmp = df[[team_col, 'season', 'week', 'start_date', 'total_points']].copy()
+        tmp = tmp.rename(columns={team_col: 'team'})
+
+        if cutoff_date is not None:
+            tmp['game_date'] = pd.to_datetime(tmp['start_date'])
+            tmp['valid'] = (tmp['game_date'] < cutoff_date) & tmp['total_points'].notna()
+            tmp.loc[~tmp['valid'], 'total_points'] = np.nan
+
+        # Rolling average of total points in games this team played
+        tmp['total_roll'] = tmp.groupby('team')['total_points'].transform(
+            lambda s: s.shift(1).rolling(ROLL_N, min_periods=1).mean()
+        )
+        return tmp[['total_roll']].rename(columns={'total_roll': f'{prefix}_game_total_roll{ROLL_N}'})
+
+    home_total_history = add_total_history('home', 'home_team')
+    away_total_history = add_total_history('away', 'away_team')
+    df = pd.concat([df, home_total_history, away_total_history], axis=1)
+
+    # Average of both teams' recent game totals
+    df['combined_game_total_history'] = (df[f'home_game_total_roll{ROLL_N}'] + df[f'away_game_total_roll{ROLL_N}']) / 2
+
+    # 4. WEEK OF SEASON (early season = more variance, blowouts)
+    df['week_num'] = df['week'].astype(float)
+    df['is_early_season'] = (df['week_num'] <= 4).astype(int)  # Weeks 1-4
+    df['is_late_season'] = (df['week_num'] >= 11).astype(int)  # Weeks 11+
+
     # Basic flags
     df['is_neutral'] = df['neutral_site'].astype(bool).astype(int)
     df['is_home'] = 1 - df['is_neutral']  # treat non-neutral as 'home has HFA'
+
     return df
 
 def join_lines(features: pd.DataFrame, lines: pd.DataFrame, book: str = 'consensus') -> pd.DataFrame:

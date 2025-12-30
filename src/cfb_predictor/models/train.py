@@ -11,7 +11,21 @@ from ..features.feature_builder import build_features, join_lines
 
 FEATURES_WIN = ['elo_diff','is_neutral','home_pf_roll3','home_pa_roll3','away_pf_roll3','away_pa_roll3']
 FEATURES_MARGIN = ['elo_diff','is_neutral']
-FEATURES_TOTAL = ['home_pf_roll3','home_pa_roll3','away_pf_roll3','away_pa_roll3','is_neutral']
+FEATURES_TOTAL = [
+    # Original features
+    'home_pf_roll3', 'home_pa_roll3', 'away_pf_roll3', 'away_pa_roll3', 'is_neutral',
+    # Conference features
+    'home_conf_scoring_factor', 'away_conf_scoring_factor', 'is_conference_game',
+    # Combined team stats
+    'expected_combined_total', 'expected_combined_defense',
+    'home_off_vs_away_def', 'away_off_vs_home_def',
+    # Game total history
+    'home_game_total_roll3', 'away_game_total_roll3', 'combined_game_total_history',
+    # Timing features
+    'week_num', 'is_early_season', 'is_late_season',
+    # ELO for context
+    'elo_diff'
+]
 
 def load_season(season: int) -> pd.DataFrame:
     path = os.path.join(RAW_DIR, f"games_{season}.parquet")
