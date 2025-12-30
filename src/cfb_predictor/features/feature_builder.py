@@ -147,6 +147,63 @@ def build_features(games: pd.DataFrame, cutoff_date: pd.Timestamp = None) -> pd.
     df['is_early_season'] = (df['week_num'] <= 4).astype(int)  # Weeks 1-4
     df['is_late_season'] = (df['week_num'] >= 11).astype(int)  # Weeks 11+
 
+    # ========== ATS-SPECIFIC FEATURES ==========
+
+    # 1. POSTSEASON INDICATOR
+    # Postseason games are completely different (opt-outs, long layoffs, motivation issues)
+    df['is_postseason'] = (df['season_type'] == 'postseason').astype(int)
+
+    # 2. RECENT MARGIN PERFORMANCE (ATS predictor)
+    # Track how teams have been covering spreads recently
+    def add_margin_history(prefix: str, team_col: str, is_home: bool):
+        """Calculate rolling average of margins (for ATS trends)"""
+        tmp = df[[team_col, 'season', 'week', 'start_date', 'margin']].copy()
+        tmp = tmp.rename(columns={team_col: 'team'})
+
+        # Adjust margin for perspective (home team margin or away team margin)
+        if not is_home:
+            tmp['margin'] = -tmp['margin']  # Flip sign for away teams
+
+        if cutoff_date is not None:
+            tmp['game_date'] = pd.to_datetime(tmp['start_date'])
+            tmp['valid'] = (tmp['game_date'] < cutoff_date) & tmp['margin'].notna()
+            tmp.loc[~tmp['valid'], 'margin'] = np.nan
+
+        # Rolling average of margins
+        tmp['margin_roll'] = tmp.groupby('team')['margin'].transform(
+            lambda s: s.shift(1).rolling(ROLL_N, min_periods=1).mean()
+        )
+        return tmp[['margin_roll']].rename(columns={'margin_roll': f'{prefix}_margin_roll{ROLL_N}'})
+
+    home_margin_history = add_margin_history('home', 'home_team', is_home=True)
+    away_margin_history = add_margin_history('away', 'away_team', is_home=False)
+    df = pd.concat([df, home_margin_history, away_margin_history], axis=1)
+
+    # 3. CONFERENCE STRENGTH DIFFERENTIAL
+    # Map conferences to relative strength (for ATS purposes)
+    conference_strength_map = {
+        'SEC': 1.10,          # Strongest conference
+        'Big Ten': 1.05,
+        'Big 12': 1.00,       # Baseline
+        'ACC': 0.95,
+        'Pac-12': 0.95,
+        'American Athletic': 0.85,
+        'Mountain West': 0.80,
+        'Conference USA': 0.75,
+        'Sun Belt': 0.75,
+        'Mid-American': 0.70,
+        'FBS Independents': 0.90,
+    }
+    df['home_conf_strength'] = df['home_conference'].map(conference_strength_map).fillna(0.85)
+    df['away_conf_strength'] = df['away_conference'].map(conference_strength_map).fillna(0.85)
+    df['conf_strength_diff'] = df['home_conf_strength'] - df['away_conf_strength']
+
+    # 4. MOMENTUM / FORM INDICATORS
+    # Recent performance matters for ATS
+    df['home_recent_form'] = df['home_pf_roll3'] - df['home_pa_roll3']  # Point differential
+    df['away_recent_form'] = df['away_pf_roll3'] - df['away_pa_roll3']
+    df['form_differential'] = df['home_recent_form'] - df['away_recent_form']
+
     # Basic flags
     df['is_neutral'] = df['neutral_site'].astype(bool).astype(int)
     df['is_home'] = 1 - df['is_neutral']  # treat non-neutral as 'home has HFA'

@@ -10,7 +10,20 @@ from ..config import RAW_DIR, PROCESSED_DIR, MODELS_DIR
 from ..features.feature_builder import build_features, join_lines
 
 FEATURES_WIN = ['elo_diff','is_neutral','home_pf_roll3','home_pa_roll3','away_pf_roll3','away_pa_roll3']
-FEATURES_MARGIN = ['elo_diff','is_neutral']
+FEATURES_MARGIN = [
+    # Original features (model was 58% with just these!)
+    'elo_diff', 'is_neutral',
+    # Postseason indicator (critical - postseason is 42.9% vs 58% regular season)
+    'is_postseason',
+    # Recent margin history (ATS momentum)
+    'home_margin_roll3', 'away_margin_roll3',
+    # Conference strength differential
+    'conf_strength_diff',
+    # Recent form (point differential trends)
+    'form_differential',
+    # Scoring trends
+    'home_pf_roll3', 'away_pf_roll3', 'home_pa_roll3', 'away_pa_roll3',
+]
 FEATURES_TOTAL = [
     # Original features
     'home_pf_roll3', 'home_pa_roll3', 'away_pf_roll3', 'away_pa_roll3', 'is_neutral',
