@@ -1,4 +1,4 @@
 model,metric,value
-win,log_loss,0.5733571817264582
+win,log_loss,0.5733571817264581
 margin,MAE,14.699881163166953
 total,MAE,13.425672423657861
